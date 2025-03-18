@@ -1,6 +1,6 @@
 use std::str::FromStr;
 use crate::parser::numeric_literals;
-use crate::ast::{LocatedExpression, Expression, Op};
+use crate::ast::expressions::{LocatedExpression, Expression, Op};
 use crate::ast::statements::{LocatedStatement, Statement, Branch};
 
 grammar;
@@ -11,6 +11,11 @@ pub File: Vec<LocatedStatement> = {
 
 TopLevelStatement: LocatedStatement = {
     FunctionDefinition,
+    FunctionDeclaration,
+}
+
+FunctionDeclaration: LocatedStatement = {
+    <s:@L> "declare" "fn" <name:Identifier> "(" <args:List<TypedIdentifier>> ")" "->" <return_type:Typ> <e:@R> => Statement::wrap(Statement::FunctionDeclaration {name, args, return_type}, (s,e))
 }
 
 FunctionDefinition: LocatedStatement = {
@@ -147,7 +152,8 @@ Term = {
     DecimalInteger
 };
 
-BinaryInteger: LocatedExpression = <s:@L> <v:r"0[bB][01]([_']?[01])*"> <e:@R> => Expression::wrap(numeric_literals::binary_integer(v), (s, e));
-DecimalInteger: LocatedExpression = <s:@L> <v:r"0|[1-9]([_']?[0-9])*"> <e:@R> => Expression::wrap(numeric_literals::decimal_integer(v), (s, e));
+BinaryInteger: LocatedExpression = <s:@L> <v:r"0[bB][01]([_']?[01])*([ui](64|32))?"> <e:@R> => Expression::wrap(numeric_literals::binary_integer(v), (s, e));
+DecimalInteger: LocatedExpression = <s:@L> <v:r"0|[1-9]([_']?[0-9])*([ui](64|32))?"> <e:@R> => Expression::wrap(numeric_literals::decimal_integer(v), (s, e));
+
 Identifier: LocatedExpression = <s:@L> <v:r"[a-zA-Z_]+[a-zA-Z0-9_]*"> <e:@R> => Expression::wrap(Expression::Identifier(v.into()), (s, e));
 Typ: LocatedExpression = <s:@L> <v:r"[a-zA-Z_]+[a-zA-Z0-9_]*"> <e:@R> => Expression::wrap(Expression::Type(v.into()), (s, e));

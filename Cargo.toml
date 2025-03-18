@@ -1,0 +1,11 @@
+[package]
+name = "volt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lalrpop-util = { version = "0.22.1", features = ["lexer", "unicode"] }
+regex = "1.11.1"
+
+[build-dependencies]
+lalrpop = "0.22.1"

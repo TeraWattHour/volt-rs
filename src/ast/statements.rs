@@ -1,11 +1,10 @@
-use crate::ast::{Expression, LocatedExpression};
+use crate::ast::expressions::{Expression, LocatedExpression};
 
 #[derive(Debug)]
 pub struct LocatedStatement {
     span: (usize, usize),
     pub(crate) value: Box<Statement>
 }
-
 
 impl Statement {
     pub(crate) fn wrap(inner: Statement, span: (usize, usize)) -> LocatedStatement {
@@ -23,6 +22,7 @@ pub enum Statement {
     Expression(LocatedExpression),
     Block(Vec<LocatedStatement>),
     Function { name: LocatedExpression, args: Vec<(LocatedExpression, LocatedExpression)>, return_type: LocatedExpression, body: LocatedStatement },
+    FunctionDeclaration { name: LocatedExpression, args: Vec<(LocatedExpression, LocatedExpression)>, return_type: LocatedExpression },
     Return(Option<LocatedExpression>)
 }
 

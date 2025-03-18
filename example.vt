@@ -1,0 +1,6 @@
+declare fn putchar(ch: i32) -> i32
+
+fn main() -> i32 {
+    putchar(65i32);
+    return 0;
+}

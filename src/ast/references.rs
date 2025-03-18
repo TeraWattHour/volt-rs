@@ -1,4 +1,4 @@
-use crate::ast::{Expression, LocatedExpression};
+use crate::ast::expressions::{Expression, LocatedExpression};
 use crate::ast::statements::{LocatedStatement, Statement};
 
 // traverses the program tree to find all calls to the function with the given identifier
