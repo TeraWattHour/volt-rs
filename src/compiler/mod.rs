@@ -75,14 +75,7 @@ where
             fn_context.add_variable(name.value.as_string(), false, typ.value.typ(context)?);
         }
 
-        for statement in body {
-            match &*statement.value {
-                Statement::Let { .. } => self._let(statement, &fn_context)?,
-                Statement::Return(..) => self._return(statement, &fn_context)?,
-                Statement::Expression(expr) => { self.expression(expr, &fn_context)?; },
-                _ => unreachable!(),
-            }
-        }
+        self.block(body, &fn_context)?;
 
         self.write("}\n\n")?;
 
@@ -96,9 +89,26 @@ where
 
         let temp = self.expression(value, context)?;
         self.indent()?;
-
         let typ = value.value.typ(context)?;
+        context.add_variable(name.value.as_string(), false, typ.clone());
         self.write(&format!("%{} ={} copy %t.{temp}\n", name.value.as_string(), typ.to_qbe()))
+    }
+
+    fn _if(&self, statement: &LocatedStatement, context: &Context) -> Result<(), Box<dyn Error>> {
+        extract!(&*statement.value, Statement::If { ref condition, ref body, ref otherwise });
+
+        let temp = self.expression(condition, context)?;
+        let if_label_id = context.add_temporary();
+        self.line(&format!("jnz %t.{temp}, @branch.{if_label_id}, @branch.{if_label_id}.end"))?;
+        self.write(&format!("@branch.{if_label_id}\n"))?;
+
+        extract!(&*body.value, Statement::Block(body));
+        let context = Context::extend(context);
+        self.block(body, &context)?;
+
+        self.write(&format!("@branch.{if_label_id}.end\n"))?;
+
+        Ok(())
     }
 
     fn _return(&self, statement: &LocatedStatement, context: &Context) -> Result<(), Box<dyn Error>> {
@@ -111,6 +121,20 @@ where
             self.line(&format!("ret %t.{}", id))?;
         } else {
             self.line("ret")?;
+        }
+
+        Ok(())
+    }
+
+    fn block(&self, statements: &Vec<LocatedStatement>, context: &Context) -> Result<(), Box<dyn Error>> {
+        for statement in statements {
+            match &*statement.value {
+                Statement::Let { .. } => self._let(statement, &context)?,
+                Statement::Return(..) => self._return(statement, &context)?,
+                Statement::Expression(expr) => { self.expression(expr, &context)?; },
+                Statement::If {..} => self._if(statement, &context)?,
+                _ => unreachable!(),
+            }
         }
 
         Ok(())

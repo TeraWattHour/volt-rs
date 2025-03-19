@@ -3,10 +3,11 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use crate::types::Type;
 
+#[derive(Debug)]
 pub struct Context {
     functions: Rc<RefCell<HashMap<String, Type>>>,
     variables: Rc<RefCell<HashMap<String, (bool, Type)>>>,
-    temporaries: RefCell<usize>
+    temporaries: Rc<RefCell<usize>>
 }
 
 impl Context {
@@ -14,7 +15,7 @@ impl Context {
         Self {
             functions: Rc::new(RefCell::new(HashMap::new())),
             variables: Rc::new(RefCell::new(HashMap::new())),
-            temporaries: RefCell::new(0),
+            temporaries: Rc::new(RefCell::new(0)),
         }
     }
 
@@ -22,7 +23,15 @@ impl Context {
         Self {
             functions: from.functions.clone(),
             variables: from.variables.clone(),
-            temporaries: RefCell::new(0)
+            temporaries: Rc::new(RefCell::new(0))
+        }
+    }
+
+    pub fn extend(other: &Context) -> Self {
+        Self {
+            functions: other.functions.clone().clone(),
+            variables: other.variables.clone().clone(),
+            temporaries: other.temporaries.clone(),
         }
     }
 
