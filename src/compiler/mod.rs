@@ -51,7 +51,7 @@ where
     fn function_definition<'a>(&self, statement: &LocatedStatement, context: &Context) -> Result<(), Box<dyn Error>> {
         extract!(*statement.value, Statement::Function { ref name, ref args, ref return_type, ref body });
 
-        self.write(&format!("export function {} ${}(", return_type.value.typ(context)?.to_qbe(), name.value.as_string()))?;
+        self.write(format!("export function {} ${}(", return_type.value.typ(context)?.to_qbe(), name.value.as_string()))?;
         for arg in args {
             let typ = match &*arg.1.value {
                 Expression::Type(name) => Type::from_literal(name)?,
@@ -94,7 +94,7 @@ where
         self.write(&format!("%{} ={} copy %t.{temp}\n", name.value.as_string(), typ.to_qbe()))
     }
 
-    fn _if(&self, statement: &LocatedStatement, context: &Context) -> Result<(), Box<dyn Error>> {
+    fn _if(&self, statement: &LocatedStatement, context: &Context, block_id: Option<usize>) -> Result<(), Box<dyn Error>> {
         extract!(&*statement.value, Statement::If { ref condition, ref body, ref otherwise });
 
         let temp = self.expression(condition, context)?;
@@ -106,7 +106,26 @@ where
         let context = Context::extend(context);
         self.block(body, &context)?;
 
+        self.line(&format!("jmp @branch.{}.after", block_id.or(Some(if_label_id)).unwrap()))?;
         self.write(&format!("@branch.{if_label_id}.end\n"))?;
+
+        if let Some(otherwise) = otherwise {
+
+            match &*otherwise.value {
+                Statement::If {..} => { self._if(otherwise, &context, block_id.or(Some(if_label_id)))?; }
+                Statement::Block(block) if block.len() > 0 => {
+                    self.block(block, &context)?;
+                    if let Some(block_id) = block_id {
+                        self.line(&format!("jmp @branch.{block_id}.after"))?;
+                    }
+                },
+                _ => ()
+            }
+
+            if let None = block_id {
+                self.write(&format!("@branch.{if_label_id}.after\n"))?;
+            }
+        }
 
         Ok(())
     }
@@ -132,7 +151,7 @@ where
                 Statement::Let { .. } => self._let(statement, &context)?,
                 Statement::Return(..) => self._return(statement, &context)?,
                 Statement::Expression(expr) => { self.expression(expr, &context)?; },
-                Statement::If {..} => self._if(statement, &context)?,
+                Statement::If {..} => self._if(statement, &context, None)?,
                 _ => unreachable!(),
             }
         }
@@ -151,13 +170,19 @@ where
                 let left = self.expression(lhs, context)?;
                 let right = self.expression(rhs, context)?;
 
+                // TODO: different operation based on type, shorthand assigns
                 let op = match op {
                     Op::Plus => "add",
                     Op::Minus => "sub",
                     Op::Asterisk => "mul",
                     Op::Slash => "div",
                     Op::Modulo => "rem",
-                    _ => unimplemented!()
+                    Op::Eq => "ceqw",
+                    Op::Neq => "cneqw",
+                    Op::LogicalAnd => "and",
+                    Op::LogicalOr => "or",
+                    Op::Assign => return self.line(format!("%t.{left} ={} copy %t.{right}", lhs.value.typ(context)?.to_qbe())).map(|_| left),
+                    _ => { unimplemented!() }
                 };
 
                 self.line(&format!("%t.{temp_id} =w {op} %t.{left}, %t.{right}"))?;
@@ -193,13 +218,14 @@ where
         Ok(temp_id)
     }
 
-    fn write(&self, content: &str) -> Result<(), Box<dyn Error>> {
-        self.output.borrow_mut().write(content.as_bytes())?;
+
+    fn write(&self, content: impl AsRef<str>) -> Result<(), Box<dyn Error>> {
+        self.output.borrow_mut().write(content.as_ref().as_bytes())?;
 
         Ok(())
     }
 
-    fn line(&self, line: &str) -> Result<(), Box<dyn Error>> {
+    fn line(&self, line: impl AsRef<str>) -> Result<(), Box<dyn Error>> {
         self.write("    ")?;
         self.write(line)?;
         self.write("\n")?;

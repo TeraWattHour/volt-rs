@@ -77,15 +77,6 @@ Expr = {
     #[precedence(level="7")] #[assoc(side="right")]
     <start:@L> <lhs:Lvalue> <op:ShortAssignment> <rhs:Expr> <end:@R> =>
         Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
-
-//
-//    #[precedence(level="5")] #[assoc(side="left")]
-//    <start:@L> <lhs:Expr> <op:r"and|&&"> <rhs:Expr> <end:@R> =>
-//        Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
-//
-//    #[precedence(level="6")] #[assoc(side="left")]
-//    <start:@L> <lhs:Expr> <op:r"or|\|\|"> <rhs:Expr> <end:@R> =>
-//        Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
 };
 
 List<T>: Vec<T> = {
@@ -149,7 +140,8 @@ LogicalConjunction: Op = {
 Term = {
     Lvalue,
     BinaryInteger,
-    DecimalInteger
+    DecimalInteger,
+    "(" <t:Expr> ")" => t,
 };
 
 BinaryInteger: LocatedExpression = <s:@L> <v:r"0[bB][01]([_']?[01])*([ui](64|32))?"> <e:@R> => Expression::wrap(numeric_literals::binary_integer(v), (s, e));
