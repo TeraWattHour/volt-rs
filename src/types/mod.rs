@@ -35,4 +35,12 @@ impl Type {
             Type::Function {..} => 'l',
         }
     }
+
+    pub fn can_become(&self, other: &Type) -> bool {
+        match (self, other) {
+            (Type::Int32 | Type::Int64, Type::Int32 | Type::Int64) => true,
+            (Type::Float32 | Type::Float64, Type::Float32 | Type::Float64) => true,
+            _ => false,
+        }
+    }
 }

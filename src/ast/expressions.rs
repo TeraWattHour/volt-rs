@@ -44,7 +44,7 @@ impl Expression {
             Expression::Infix { lhs, op, rhs } => {
                 let left = lhs.value.typ(context)?;
                 let right = rhs.value.typ(context)?;
-                if left != right {
+                if !right.can_become(&left) {
                     return Err(format!("incompatible types, {:?} != {:?}", left, right).into());
                 }
                 Ok(left)

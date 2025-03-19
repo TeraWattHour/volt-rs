@@ -1,13 +1,13 @@
 declare fn putchar(ch: i32) -> i32
 
 fn main() -> i32 {
-    let a = 65i32;
+    let a = 65;
     if (2 == 2) && 1 {
-        a = 67i32;
+        a = 67;
     } else if 1 {
-        a = 68i32;
+        a = 68;
     } else if 1 {
-        a = 69i32;
+        a = 69;
     }
 
     putchar(a);

@@ -203,10 +203,10 @@ where
                 for (i, arg) in args.iter().enumerate() {
                     let temp = self.expression(arg, context)?;
                     let typ = arg.value.typ(context)?;
-                    if called_args[i] != typ {
+                    if !typ.can_become(&called_args[i]) {
                         return Err(format!("function {called_name} called with wrong types").into());
                     }
-                    pairs.push((typ, temp));
+                    pairs.push((called_args[i].clone(), temp));
                 }
 
                 let arguments: String = pairs.iter().map(|(typ, temp)| format!("{} %t.{}, ", typ.to_qbe(), temp)).collect();
