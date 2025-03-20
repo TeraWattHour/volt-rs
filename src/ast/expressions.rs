@@ -28,7 +28,11 @@ impl Expression {
 #[derive(Debug)]
 pub enum Expression {
     Infix { lhs: LocatedExpression, op: Op, rhs: LocatedExpression },
-    Integer(i64, Type),
+
+    Int(isize),
+    Int32(i32),
+    Int64(i64),
+
     Type(String),
     Identifier(String),
     IndexAccess { lhs: LocatedExpression, rhs: LocatedExpression },
@@ -39,7 +43,7 @@ pub enum Expression {
 impl Expression {
     pub fn typ(&self, context: &Context) -> Result<Type, Box<dyn Error>> {
         match self {
-            Expression::Integer(_, t) => Ok(t.clone()),
+            // Expression::Integer(_, t) => Ok(t.clone()),
             Expression::Identifier(name) => context.get(name).ok_or_else(|| "reference to undeclared variable".into()),
             Expression::Infix { lhs, op, rhs } => {
                 let left = lhs.value.typ(context)?;

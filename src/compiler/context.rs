@@ -19,7 +19,7 @@ impl Context {
         }
     }
 
-    pub fn inherit_separate(from: &Context) -> Self {
+    pub fn with_separate_temporaries(from: &Context) -> Self {
         Self {
             functions: from.functions.clone(),
             variables: from.variables.clone(),

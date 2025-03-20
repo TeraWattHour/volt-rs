@@ -5,8 +5,8 @@ use crate::ast::statements::{LocatedStatement, Statement, Branch};
 
 grammar;
 
-pub File: Vec<LocatedStatement> = {
-    <mut v:(<TopLevelStatement>)*> => v,
+pub File: LocatedStatement = {
+    <s:@L> <mut v:(<TopLevelStatement>)*> <e:@R> => Statement::wrap(Statement::Block(v), (s, e)),
 };
 
 TopLevelStatement: LocatedStatement = {
@@ -30,6 +30,7 @@ Statement: LocatedStatement = {
     <s:@L> "let" <name:Identifier> "=" <value: Expr> ";" <e:@R> => Statement::wrap(Statement::Let { name, value }, (s, e)),
     <s:@L> <expr:Expr> ";" <e:@R> => Statement::wrap(Statement::Expression(expr), (s, e)),
     IfStatement,
+    Block,
     <s:@L> "return" <expr:Expr?> ";" <e:@R> => Statement::wrap(Statement::Return(expr), (s, e)),
 };
 

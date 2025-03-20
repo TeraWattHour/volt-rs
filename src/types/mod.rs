@@ -1,21 +1,30 @@
 use std::error::Error;
 
-pub(crate) mod functions;
+pub mod functions;
+pub mod checker;
+pub mod env;
+mod expression;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
+    Int,
     Int64,
     Int32,
 
     Float64,
     Float32,
 
-    Function { args: Vec<Type>, returned: Box<Type> }
+    Bool,
+
+    Function { args: Vec<Type>, returned: Box<Type> },
+    Nothing,
+    Unknown
 }
 
 impl Type {
     pub fn from_literal(literal: &str) -> Result<Self, Box<dyn Error>> {
         match literal {
+            "int" => Ok(Type::Int),
             "i64" => Ok(Type::Int64),
             "i32" => Ok(Type::Int32),
             "f64" => Ok(Type::Float64),
@@ -24,8 +33,21 @@ impl Type {
         }
     }
 
+    pub fn size(&self) -> usize {
+        match self {
+            Type::Int64 | Type::Float64 => 8,
+            Type::Int32 | Type::Float32 => 4,
+            _ => unimplemented!()
+        }
+    }
+
+    pub fn alignment(&self) -> usize {
+        self.size()
+    }
+
     pub fn to_qbe(&self) -> char {
         match self {
+            Type::Int => 'l',
             Type::Int64 => 'l',
             Type::Int32 => 'w',
             Type::Float64 => 'd',
@@ -33,6 +55,8 @@ impl Type {
 
             // pointer to function
             Type::Function {..} => 'l',
+
+            _ => unreachable!()
         }
     }
 

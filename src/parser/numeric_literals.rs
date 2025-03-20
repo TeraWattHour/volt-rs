@@ -14,7 +14,7 @@ fn check_integer_suffix(s: &str) -> (Option<usize>, Type) {
             "32" => Type::Int32,
             _ => unreachable!("only 64- and 32-bit integers are supported")
         },
-        None => Type::Int64,
+        None => Type::Int,
     };
 
     (suffix_at, typ)
@@ -22,10 +22,26 @@ fn check_integer_suffix(s: &str) -> (Option<usize>, Type) {
 
 pub(crate) fn binary_integer(s: &str) -> Expression {
     let (suffix_at, typ) = check_integer_suffix(s);
-    Expression::Integer(i64::from_str_radix(&remove_separators(s).as_str()[2..suffix_at.unwrap_or(s.len())], 2).unwrap(), typ)
+    let binding = remove_separators(s);
+    let value = &binding.as_str()[2..suffix_at.unwrap_or(s.len())];
+
+    match typ {
+        Type::Int32 => Expression::Int32(i32::from_str_radix(value, 2).unwrap()),
+        Type::Int64 => Expression::Int64(i64::from_str_radix(value, 2).unwrap()),
+        Type::Int => Expression::Int(isize::from_str_radix(value, 2).unwrap()),
+        _ => unreachable!(),
+    }
 }
 
 pub(crate) fn decimal_integer(s: &str) -> Expression {
     let (suffix_at, typ) = check_integer_suffix(s);
-    Expression::Integer(i64::from_str(&remove_separators(s).as_str()[..suffix_at.unwrap_or(s.len())]).unwrap(), typ)
+    let binding = remove_separators(s);
+    let value = &binding.as_str()[..suffix_at.unwrap_or(s.len())];
+
+    match typ {
+        Type::Int32 => Expression::Int32(i32::from_str(value).unwrap()),
+        Type::Int64 => Expression::Int64(i64::from_str(value).unwrap()),
+        Type::Int => Expression::Int(isize::from_str(value).unwrap()),
+        _ => unreachable!(),
+    }
 }

@@ -6,7 +6,8 @@ use std::io::Write;
 use crate::ast::expressions::{LocatedExpression, Expression, Op};
 use crate::ast::statements::{LocatedStatement, Statement};
 use crate::compiler::context::Context;
-use crate::types::functions::{definition_type, register_functions};
+use crate::types::checker::register_functions;
+use crate::types::functions::{function_definition_type};
 use crate::types::Type;
 
 pub struct Compiler<T: Write> {
@@ -35,7 +36,6 @@ where
 
     pub fn generate(&self) -> Result<(), Box<dyn Error>> {
         let program_context = Context::global();
-        register_functions(&self.program, &program_context)?;
 
         for statement in &self.program {
             match &*statement.value {
@@ -68,18 +68,18 @@ where
 
         extract!(&*body.value, Statement::Block(body));
 
-        let mut fn_context = Context::inherit_separate(context);
+        let mut fn_context = Context::with_separate_temporaries(context);
 
         // fill function's context with its arguments
         for (name, typ) in args {
-            fn_context.add_variable(name.value.as_string(), false, typ.value.typ(context)?);
+            fn_context.add_variable(name.value.as_string(), false, Type::from_literal(&typ.value.as_string())?);
         }
 
         self.block(body, &fn_context)?;
 
         self.write("}\n\n")?;
 
-        context.add_function(name.value.as_string(), definition_type(statement)?);
+        context.add_function(name.value.as_string(), function_definition_type(statement)?);
 
         Ok(())
     }
@@ -91,7 +91,11 @@ where
         self.indent()?;
         let typ = value.value.typ(context)?;
         context.add_variable(name.value.as_string(), false, typ.clone());
-        self.write(&format!("%{} ={} copy %t.{temp}\n", name.value.as_string(), typ.to_qbe()))
+
+        // since the value's address can be taken (like in C), values bound within a let statement
+        // are stored on the stack
+        self.line(&format!("%{} =l alloc8 8", name.value.as_string()))?;
+        self.line(&format!("storel %t.{temp}, %{}", name.value.as_string()))
     }
 
     fn _if(&self, statement: &LocatedStatement, context: &Context, block_id: Option<usize>) -> Result<(), Box<dyn Error>> {
@@ -110,7 +114,6 @@ where
         self.write(&format!("@branch.{if_label_id}.end\n"))?;
 
         if let Some(otherwise) = otherwise {
-
             match &*otherwise.value {
                 Statement::If {..} => { self._if(otherwise, &context, block_id.or(Some(if_label_id)))?; }
                 Statement::Block(block) if block.len() > 0 => {
@@ -164,8 +167,8 @@ where
         let typ = expr.value.typ(context)?;
 
         match &*expr.value {
-            Expression::Integer(i, _) => self.line(&format!("%t.{temp_id} ={} copy {i}", typ.to_qbe()))?,
-            Expression::Identifier(name) => self.line(&format!("%t.{temp_id} ={} copy %{name}", typ.to_qbe()))?,
+            // Expression:: Integer(i, _) => self.line(&format!("%t.{temp_id} ={} copy {i}", typ.to_qbe()))?,
+            Expression::Identifier(name) => self.line(&format!("%t.{temp_id} ={} loadl %{name}", typ.to_qbe()))?,
             Expression::Infix { lhs, op, rhs } => {
                 let left = self.expression(lhs, context)?;
                 let right = self.expression(rhs, context)?;
@@ -203,7 +206,7 @@ where
                 for (i, arg) in args.iter().enumerate() {
                     let temp = self.expression(arg, context)?;
                     let typ = arg.value.typ(context)?;
-                    if !typ.can_become(&called_args[i]) {
+                    if typ != called_args[i] {
                         return Err(format!("function {called_name} called with wrong types").into());
                     }
                     pairs.push((called_args[i].clone(), temp));
