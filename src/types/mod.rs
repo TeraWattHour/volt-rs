@@ -29,6 +29,7 @@ impl Type {
             "i32" => Ok(Type::Int32),
             "f64" => Ok(Type::Float64),
             "f32" => Ok(Type::Float32),
+            "Nothing" => Ok(Type::Nothing),
             _ => Err(format!("unrecognised type literal '{literal}'").into())
         }
     }

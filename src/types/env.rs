@@ -56,9 +56,11 @@ impl<'a> TypeEnv<'a> {
         self.functions.insert(name.to_string(), typ);
     }
 
-    pub fn add_return(&self, typ: Type) {
+    pub fn add_return(&self, typ: Type, direct: bool) {
         self.returns.borrow_mut().push(typ.clone());
-        *self.returns_directly.borrow_mut() = true;
+        if direct {
+            *self.returns_directly.borrow_mut() = true;
+        }
 
         let mut base = self;
 
@@ -67,13 +69,17 @@ impl<'a> TypeEnv<'a> {
         }
 
         if let Some(ref p) = base.parent {
-            p.add_return(typ.clone());
+            p.add_return(typ.clone(), false);
         }
     }
 
     pub fn compatible_returns(&self, with: Type) -> bool {
         let borrowed = self.returns.borrow();
-        !borrowed.is_empty() && borrowed.iter().all(|x| x == &with)
+        if with == Type::Nothing {
+            borrowed.is_empty()
+        } else {
+            !borrowed.is_empty() && borrowed.iter().all(|x| x == &with)
+        }
     }
 
     pub fn get_type(&self, name: &str) -> Type {
