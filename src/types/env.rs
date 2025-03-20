@@ -76,7 +76,7 @@ impl<'a> TypeEnv<'a> {
     pub fn compatible_returns(&self, with: Type) -> bool {
         let borrowed = self.returns.borrow();
         if with == Type::Nothing {
-            borrowed.is_empty()
+            borrowed.is_empty() || borrowed.iter().all(|x| x == &with)
         } else {
             !borrowed.is_empty() && borrowed.iter().all(|x| x == &with)
         }

@@ -62,7 +62,7 @@ fn typecheck_statement(stmt: &LocatedStatement, env: &mut TypeEnv) -> Result<boo
             if expected_return != Type::Nothing && !returns {
                 return Err("function doesn't return".into())
             }
-            if !function_env.compatible_returns(expected_return) {
+            if !function_env.compatible_returns(expected_return.clone()) {
                 return Err("function has incompatible returns".into());
             }
 
