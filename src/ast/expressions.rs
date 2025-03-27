@@ -3,15 +3,6 @@ use crate::types::Type;
 
 pub type Expr = Node<Expression>;
 
-impl Expression {
-    pub fn as_string(&self) -> String {
-        match self {
-            Expression::Identifier(value) => value.clone(),
-            _ => unreachable!()
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum Expression {
     Infix { lhs: Expr, op: Op, rhs: Expr },
@@ -55,4 +46,14 @@ pub enum Op {
 
     LogicalOr,
     LogicalAnd,
+}
+
+#[macro_export]
+macro_rules! ident {
+    ($i:expr) => {
+        match &*$i.inner {
+            Expression::Identifier(name) => name.clone(),
+            _ => unreachable!(),
+        }
+    };
 }

@@ -1,7 +1,7 @@
 use std::error::Error;
 use crate::ast::expressions::Expression;
 use crate::ast::statements::{Statement, Stmt};
-use crate::extract;
+use crate::{extract, ident};
 use crate::types::env::TypeEnv;
 use crate::types::expression::check_expression;
 use crate::types::functions::function_definition_type;
@@ -24,7 +24,7 @@ pub fn typecheck_block(block: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn 
 fn typecheck_statement(stmt: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn Error>> {
     match &*stmt.inner {
         Statement::Let { name, value } => {
-            env.add_type(&name.inner.as_string(), check_expression(value, env)?);
+            env.add_type(&ident!(name), check_expression(value, env)?);
             Ok(false)
         }
         Statement::Expression(expr) => {
@@ -48,7 +48,7 @@ fn typecheck_statement(stmt: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn E
             let mut function_env = env.child_with_isolated_returns();
             for (name, typ) in args {
                 extract!(typ, Expression::Type(typ));
-                function_env.add_type(&name.inner.as_string(), typ.clone())
+                function_env.add_type(&ident!(name), typ.clone())
             }
 
             let returns = typecheck_block(body, &mut function_env)?;
@@ -90,8 +90,8 @@ fn typecheck_statement(stmt: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn E
 pub fn register_functions(program: &Vec<Stmt>, env: &mut TypeEnv) -> Result<(), Box<dyn Error>> {
     for statement in program {
         match &*statement.inner {
-            Statement::Function { name, .. } => env.add_function(&name.inner.as_string(), function_definition_type(statement)?),
-            Statement::FunctionDeclaration { name, .. } => env.add_function(&name.inner.as_string(), function_definition_type(statement)?),
+            Statement::Function { name, .. } => env.add_function(&ident!(name), function_definition_type(statement)?),
+            Statement::FunctionDeclaration { name, .. } => env.add_function(&ident!(name), function_definition_type(statement)?),
             _ => {}
         }
     }
