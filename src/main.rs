@@ -18,5 +18,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut env = TypeEnv::new();
     typecheck_block(&mut res, &mut env)?;
 
+    dbg!(&res);
+
     Ok(())
 }

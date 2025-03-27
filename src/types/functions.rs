@@ -6,8 +6,7 @@ use crate::types::Type;
 
 pub fn function_definition_type(definition: &Stmt) -> Result<Type, Box<dyn Error>> {
     let (args, return_type) = match &*definition.inner {
-        Statement::Function { args, return_type, ..} => (args, return_type),
-        Statement::FunctionDeclaration { args, return_type, ..} => (args, return_type),
+        Statement::Function { args, return_type, ..} | Statement::FunctionDeclaration { args, return_type, ..} => (args, return_type),
         _ => unreachable!()
     };
 

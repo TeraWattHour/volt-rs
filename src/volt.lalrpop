@@ -2,7 +2,7 @@ use std::str::FromStr;
 use crate::parser::numeric_literals;
 use crate::types::Type;
 use crate::ast::expressions::{Expr, Expression, Op};
-use crate::ast::statements::{Stmt, Statement, Branch};
+use crate::ast::statements::{Stmt, Statement};
 use crate::ast::node::Node;
 
 grammar;

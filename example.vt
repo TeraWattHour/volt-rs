@@ -1,7 +1,4 @@
 fn main() -> int {
-    if (1 == 2) {
-        return 10;
-    } else {
-        return 40;
-    }
+    let a = 10;
+    return a;
 }

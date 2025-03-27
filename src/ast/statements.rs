@@ -14,9 +14,3 @@ pub enum Statement {
     Return(Option<Node<Expression>>),
     Assignment { lhs: Node<Expression>, op: Op, rhs: Node<Expression> },
 }
-
-#[derive(Debug)]
-pub struct Branch {
-    pub condition: Node<Expression>,
-    pub body: Vec<Node<Statement>>
-}

@@ -1,6 +1,6 @@
 use std::error::Error;
 use inkwell::context::Context;
-use inkwell::types::{AnyType, AnyTypeEnum, BasicType, BasicTypeEnum};
+use inkwell::types::{AnyType, BasicType, BasicTypeEnum};
 
 pub mod functions;
 pub mod checker;
@@ -24,18 +24,6 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn size(&self) -> usize {
-        match self {
-            Type::Int64 | Type::Float64 => 8,
-            Type::Int32 | Type::Float32 => 4,
-            _ => unimplemented!()
-        }
-    }
-
-    pub fn alignment(&self) -> usize {
-        self.size()
-    }
-
     pub fn basic_type<'a>(&self, ctx: &'a Context) -> BasicTypeEnum<'a> {
         match self {
             Type::Int => ctx.i64_type().into(),

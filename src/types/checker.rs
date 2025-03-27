@@ -3,7 +3,7 @@ use crate::ast::expressions::Expression;
 use crate::ast::statements::{Statement, Stmt};
 use crate::{extract, ident};
 use crate::types::env::TypeEnv;
-use crate::types::expression::check_expression;
+use crate::types::expression::typecheck_expression;
 use crate::types::functions::function_definition_type;
 use crate::types::Type;
 
@@ -24,11 +24,11 @@ pub fn typecheck_block(block: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn 
 fn typecheck_statement(stmt: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn Error>> {
     match &*stmt.inner {
         Statement::Let { name, value } => {
-            env.add_type(&ident!(name), check_expression(value, env)?);
+            env.add_type(&ident!(name), typecheck_expression(value, env)?);
             Ok(false)
         }
         Statement::Expression(expr) => {
-            check_expression(&expr, env)?;
+            typecheck_expression(&expr, env)?;
             Ok(false)
         }
         Statement::Block(..) => {
@@ -36,7 +36,7 @@ fn typecheck_statement(stmt: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn E
             typecheck_block(stmt, &mut child_env)
         }
         Statement::Return(Some(returned)) => {
-            let returned = check_expression(returned, env)?;
+            let returned = typecheck_expression(returned, env)?;
             env.add_return(returned, true);
             Ok(true)
         }
@@ -44,7 +44,7 @@ fn typecheck_statement(stmt: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn E
             env.add_return(Type::Nothing, true);
             Ok(true)
         }
-        Statement::Function { name, args, return_type, body } => {
+        Statement::Function { args, return_type, body, .. } => {
             let mut function_env = env.child_with_isolated_returns();
             for (name, typ) in args {
                 extract!(typ, Expression::Type(typ));
@@ -63,7 +63,7 @@ fn typecheck_statement(stmt: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn E
             Ok(false)
         }
         Statement::If { condition, body, otherwise } => {
-            if check_expression(condition, env)? != Type::Bool {
+            if typecheck_expression(condition, env)? != Type::Bool {
                 return Err("if condition must be of type bool".into())
             }
 
@@ -73,7 +73,7 @@ fn typecheck_statement(stmt: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn E
             if let Some(ref otherwise) = otherwise {
                 returns &= match &*otherwise.inner {
                     Statement::If { .. } => typecheck_statement(otherwise, &mut block_env)?,
-                    Statement::Block(body) => typecheck_block(otherwise, &mut block_env)?,
+                    Statement::Block(..) => typecheck_block(otherwise, &mut block_env)?,
                     _ => unreachable!()
                 };
             } else {
@@ -90,8 +90,8 @@ fn typecheck_statement(stmt: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn E
 pub fn register_functions(program: &Vec<Stmt>, env: &mut TypeEnv) -> Result<(), Box<dyn Error>> {
     for statement in program {
         match &*statement.inner {
-            Statement::Function { name, .. } => env.add_function(&ident!(name), function_definition_type(statement)?),
-            Statement::FunctionDeclaration { name, .. } => env.add_function(&ident!(name), function_definition_type(statement)?),
+            Statement::Function { name, .. } | Statement::FunctionDeclaration { name, .. } =>
+                env.add_function(&ident!(name), function_definition_type(statement)?),
             _ => {}
         }
     }
