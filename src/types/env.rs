@@ -73,22 +73,22 @@ impl<'a> TypeEnv<'a> {
         }
     }
 
-    pub fn compatible_returns(&self, with: Type) -> bool {
+    pub fn compatible_returns(&self, with: &Type) -> bool {
         let borrowed = self.returns.borrow();
-        if with == Type::Nothing {
-            borrowed.is_empty() || borrowed.iter().all(|x| x == &with)
+        if with == &Type::Nothing {
+            borrowed.is_empty() || borrowed.iter().all(|x| x == with)
         } else {
-            !borrowed.is_empty() && borrowed.iter().all(|x| x == &with)
+            !borrowed.is_empty() && borrowed.iter().all(|x| x == with)
         }
     }
 
-    pub fn get_type(&self, name: &str) -> Type {
-        if let Some(typ) = self.types.get(name) {
-            typ.clone()
+    pub fn get_type(&self, name: &str) -> Option<Type> {
+        if let Some(typ) = self.types.get(name).or_else(|| self.functions.get(name)) {
+            Some(typ.clone())
         } else if let Some(ref parent) = self.parent {
             parent.get_type(name)
         } else {
-            Type::Unknown
+            None
         }
     }
 

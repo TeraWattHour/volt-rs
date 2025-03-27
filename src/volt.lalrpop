@@ -1,83 +1,85 @@
 use std::str::FromStr;
 use crate::parser::numeric_literals;
-use crate::ast::expressions::{LocatedExpression, Expression, Op};
-use crate::ast::statements::{LocatedStatement, Statement, Branch};
+use crate::types::Type;
+use crate::ast::expressions::{Expr, Expression, Op};
+use crate::ast::statements::{Stmt, Statement, Branch};
+use crate::ast::node::Node;
 
 grammar;
 
-pub File: LocatedStatement = {
-    <s:@L> <mut v:(<TopLevelStatement>)*> <e:@R> => Statement::wrap(Statement::Block(v), (s, e)),
+pub File: Stmt = {
+    <s:@L> <mut v:(<TopLevelStatement>)*> <e:@R> => Node::new(Statement::Block(v), (s, e)),
 };
 
-TopLevelStatement: LocatedStatement = {
+TopLevelStatement: Stmt = {
     FunctionDefinition,
     FunctionDeclaration,
 }
 
-FunctionDeclaration: LocatedStatement = {
-    <s:@L> "declare" "fn" <name:Identifier> "(" <args:List<TypedIdentifier>> ")" "->" <return_type:Typ> <e:@R> => Statement::wrap(Statement::FunctionDeclaration {name, args, return_type}, (s,e))
+FunctionDeclaration: Stmt = {
+    <s:@L> "declare" "fn" <name:Identifier> "(" <args:List<TypedIdentifier>> ")" "->" <return_type:Typ> <e:@R> => Node::new(Statement::FunctionDeclaration {name, args, return_type}, (s,e))
 }
 
-FunctionDefinition: LocatedStatement = {
-    <s:@L> "fn" <name:Identifier> "(" <args:List<TypedIdentifier>> ")" "->" <return_type:Typ> <body:Block> <e:@R> => Statement::wrap(Statement::Function {name, args, return_type, body}, (s,e))
+FunctionDefinition: Stmt = {
+    <s:@L> "fn" <name:Identifier> "(" <args:List<TypedIdentifier>> ")" "->" <return_type:Typ> <body:Block> <e:@R> => Node::new(Statement::Function {name, args, return_type, body}, (s,e))
 };
 
-TypedIdentifier: (LocatedExpression, LocatedExpression) = {
+TypedIdentifier: (Expr, Expr) = {
     <Identifier> ":" <Typ>
 };
 
-Statement: LocatedStatement = {
-    <s:@L> "let" <name:Identifier> "=" <value: Expr> ";" <e:@R> => Statement::wrap(Statement::Let { name, value }, (s, e)),
-    <s:@L> <expr:Expr> ";" <e:@R> => Statement::wrap(Statement::Expression(expr), (s, e)),
+Statement: Stmt = {
+    <s:@L> "let" <name:Identifier> "=" <value: Expr> ";" <e:@R> => Node::new(Statement::Let { name, value }, (s, e)),
+    <s:@L> <expr:Expr> ";" <e:@R> => Node::new(Statement::Expression(expr), (s, e)),
     IfStatement,
     Block,
-    <s:@L> "return" <expr:Expr?> ";" <e:@R> => Statement::wrap(Statement::Return(expr), (s, e)),
+    <s:@L> "return" <expr:Expr?> ";" <e:@R> => Node::new(Statement::Return(expr), (s, e)),
 };
 
-IfStatement: LocatedStatement = {
-    <s:@L> "if" <condition:Expr> <body:Block> <otherwise:ElseClause?> <e:@R> => Statement::wrap(Statement::If { condition, body, otherwise }, (s, e)),
+IfStatement: Stmt = {
+    <s:@L> "if" <condition:Expr> <body:Block> <otherwise:ElseClause?> <e:@R> => Node::new(Statement::If { condition, body, otherwise }, (s, e)),
 };
 
-ElseClause: LocatedStatement = {
+ElseClause: Stmt = {
     "else" <IfStatement>,
     "else" <Block>,
 };
 
-Block: LocatedStatement = {
-    <s:@L> "{" <mut v:(<Statement>)*> "}" <e:@R> => Statement::wrap(Statement::Block(v), (s, e)),
+Block: Stmt = {
+    <s:@L> "{" <mut v:(<Statement>)*> "}" <e:@R> => Node::new(Statement::Block(v), (s, e)),
 };
 
 Expr = {
-    #[precedence(level="0")]
+    #[precedence(level="1")]
     Term,
 
-    #[precedence(level="1")] #[assoc(side="left")]
-    <start:@L> <lhs:Expr> <op:Multiplicative> <rhs:Expr> <end:@R> =>
-        Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
-
     #[precedence(level="2")] #[assoc(side="left")]
-    <start:@L> <lhs:Expr> <op:Additive> <rhs:Expr> <end:@R> =>
-        Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
+    <start:@L> <lhs:Expr> <op:Multiplicative> <rhs:Expr> <end:@R> =>
+        Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
     #[precedence(level="3")] #[assoc(side="left")]
-    <start:@L> <lhs:Expr> <op:Comparative> <rhs:Expr> <end:@R> =>
-        Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
+    <start:@L> <lhs:Expr> <op:Additive> <rhs:Expr> <end:@R> =>
+        Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
     #[precedence(level="4")] #[assoc(side="left")]
-    <start:@L> <lhs:Expr> <op:Equivalence> <rhs:Expr> <end:@R> =>
-        Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
+    <start:@L> <lhs:Expr> <op:Comparative> <rhs:Expr> <end:@R> =>
+        Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
     #[precedence(level="5")] #[assoc(side="left")]
-    <start:@L> <lhs:Expr> <op:LogicalConjunction> <rhs:Expr> <end:@R> =>
-        Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
+    <start:@L> <lhs:Expr> <op:Equivalence> <rhs:Expr> <end:@R> =>
+        Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
     #[precedence(level="6")] #[assoc(side="left")]
-    <start:@L> <lhs:Expr> <op:LogicalAlternative> <rhs:Expr> <end:@R> =>
-        Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
+    <start:@L> <lhs:Expr> <op:LogicalConjunction> <rhs:Expr> <end:@R> =>
+        Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
-    #[precedence(level="7")] #[assoc(side="right")]
+    #[precedence(level="7")] #[assoc(side="left")]
+    <start:@L> <lhs:Expr> <op:LogicalAlternative> <rhs:Expr> <end:@R> =>
+        Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
+
+    #[precedence(level="8")] #[assoc(side="right")]
     <start:@L> <lhs:Lvalue> <op:ShortAssignment> <rhs:Expr> <end:@R> =>
-        Expression::wrap(Expression::Infix { lhs, op, rhs }, (start, end)),
+        Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 };
 
 List<T>: Vec<T> = {
@@ -92,10 +94,10 @@ List<T>: Vec<T> = {
 
 Lvalue = {
     Identifier,
-    <s:@L> <lhs:Identifier> "[" <rhs:Expr> "]" <e:@R> => Expression::wrap(Expression::IndexAccess { lhs, rhs }, (s, e)),
-    <s:@L> <lhs:Lvalue> "(" <args:List<Expr>> ")" <e:@R> => Expression::wrap(Expression::Call { lhs, args }, (s, e)),
-    <s:@L> <lhs:Lvalue> "." <rhs:Identifier> <e:@R> => Expression::wrap(Expression::FieldAccess { lhs, rhs, dereferenced: false }, (s, e)),
-    <s:@L> <lhs:Lvalue> "->" <rhs:Identifier> <e:@R> => Expression::wrap(Expression::FieldAccess { lhs, rhs, dereferenced: true }, (s, e)),
+    <s:@L> <lhs:Identifier> "[" <rhs:Expr> "]" <e:@R> => Node::new(Expression::IndexAccess { lhs, rhs }, (s, e)),
+    <s:@L> <lhs:Lvalue> "(" <args:List<Expr>> ")" <e:@R> => Node::new(Expression::Call { lhs, args }, (s, e)),
+    <s:@L> <lhs:Lvalue> "." <rhs:Identifier> <e:@R> => Node::new(Expression::FieldAccess { lhs, rhs, dereferenced: false }, (s, e)),
+    <s:@L> <lhs:Lvalue> "->" <rhs:Identifier> <e:@R> => Node::new(Expression::FieldAccess { lhs, rhs, dereferenced: true }, (s, e)),
 }
 
 Additive: Op = {
@@ -145,8 +147,23 @@ Term = {
     "(" <t:Expr> ")" => t,
 };
 
-BinaryInteger: LocatedExpression = <s:@L> <v:r"0[bB][01]([_']?[01])*([ui](64|32))?"> <e:@R> => Expression::wrap(numeric_literals::binary_integer(v), (s, e));
-DecimalInteger: LocatedExpression = <s:@L> <v:r"0|[1-9]([_']?[0-9])*([ui](64|32))?"> <e:@R> => Expression::wrap(numeric_literals::decimal_integer(v), (s, e));
+Typ: Expr = {
+    <s:@L> <t:RawTyp> <e:@R> => Node::new(Expression::Type(t), (s, e))
+}
 
-Identifier: LocatedExpression = <s:@L> <v:r"[a-zA-Z_]+[a-zA-Z0-9_]*"> <e:@R> => Expression::wrap(Expression::Identifier(v.into()), (s, e));
-Typ: LocatedExpression = <s:@L> <v:r"[a-zA-Z_]+[a-zA-Z0-9_]*"> <e:@R> => Expression::wrap(Expression::Type(v.into()), (s, e));
+RawTyp = {
+    Int64,
+    Int32,
+    Int,
+    Nothing,
+}
+
+Int64:    Type = { "i64" => Type::Int64 }
+Int32:    Type = { "i32" => Type::Int32 }
+Int:      Type = { "int" => Type::Int }
+Nothing:  Type = { "Nothing" => Type::Nothing }
+
+BinaryInteger: Expr = <s:@L> <v:r"0[bB][01]([_']?[01])*([ui](64|32))?"> <e:@R> => Node::new(numeric_literals::binary_integer(v), (s, e));
+DecimalInteger: Expr = <s:@L> <v:r"0|[1-9]([_']?[0-9])*([ui](64|32))?"> <e:@R> => Node::new(numeric_literals::decimal_integer(v), (s, e));
+
+Identifier: Expr = <s:@L> <v:r"[a-zA-Z_]+[a-zA-Z0-9_]*"> <e:@R> => Node::new(Expression::Identifier(v.into()), (s, e));

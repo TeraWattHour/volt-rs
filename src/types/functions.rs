@@ -1,16 +1,21 @@
 use std::error::Error;
-use crate::ast::statements::{LocatedStatement, Statement};
+use crate::ast::expressions::Expression;
+use crate::ast::statements::{Stmt, Statement};
+use crate::extract;
 use crate::types::Type;
 
-pub fn function_definition_type(definition: &LocatedStatement) -> Result<Type, Box<dyn Error>> {
-    let (args, return_type) = match &*definition.value {
+pub fn function_definition_type(definition: &Stmt) -> Result<Type, Box<dyn Error>> {
+    let (args, return_type) = match &*definition.inner {
         Statement::Function { args, return_type, ..} => (args, return_type),
         Statement::FunctionDeclaration { args, return_type, ..} => (args, return_type),
         _ => unreachable!()
     };
 
-    let arg_types = args.iter().map(|(_, i)| Type::from_literal(&*i.value.as_string())).collect::<Result<Vec<_>, Box<dyn Error>>>()?;
-    let return_type = Type::from_literal(&return_type.value.as_string())?;
+    let argument_types = args.iter().map(|(_, typ)| {
+        extract!(typ, Expression::Type(argument_type));
+        argument_type.clone()
+    }).collect();
+    extract!(return_type, Expression::Type(return_type));
 
-    Ok(Type::Function { args: arg_types, returned: Box::new(return_type) })
+    Ok(Type::Function { args: argument_types, returned: Box::new(return_type.clone()) })
 }

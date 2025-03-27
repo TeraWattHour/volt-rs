@@ -1,15 +1,7 @@
-fn multiply(a: int, b: int) -> int {
-    if (2 == 2) {
-        return 1;
+fn main() -> int {
+    if (1 == 2) {
+        return 10;
+    } else {
+        return 40;
     }
-    return 2;
-}
-
-fn print(a: int) -> Nothing {
-    return;
-}
-
-fn main() -> i32 {
-    let a = 120i32;
-    return a / 60i32;
 }

@@ -1,4 +1,6 @@
 use std::error::Error;
+use inkwell::context::Context;
+use inkwell::types::{AnyType, AnyTypeEnum, BasicType, BasicTypeEnum};
 
 pub mod functions;
 pub mod checker;
@@ -22,18 +24,6 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn from_literal(literal: &str) -> Result<Self, Box<dyn Error>> {
-        match literal {
-            "int" => Ok(Type::Int),
-            "i64" => Ok(Type::Int64),
-            "i32" => Ok(Type::Int32),
-            "f64" => Ok(Type::Float64),
-            "f32" => Ok(Type::Float32),
-            "Nothing" => Ok(Type::Nothing),
-            _ => Err(format!("unrecognised type literal '{literal}'").into())
-        }
-    }
-
     pub fn size(&self) -> usize {
         match self {
             Type::Int64 | Type::Float64 => 8,
@@ -46,26 +36,14 @@ impl Type {
         self.size()
     }
 
-    pub fn to_qbe(&self) -> char {
+    pub fn basic_type<'a>(&self, ctx: &'a Context) -> BasicTypeEnum<'a> {
         match self {
-            Type::Int => 'l',
-            Type::Int64 => 'l',
-            Type::Int32 => 'w',
-            Type::Float64 => 'd',
-            Type::Float32 => 's',
-
-            // pointer to function
-            Type::Function {..} => 'l',
-
+            Type::Int => ctx.i64_type().into(),
+            Type::Int64 => ctx.i64_type().into(),
+            Type::Int32 => ctx.i32_type().into(),
+            Type::Float64 => ctx.f64_type().into(),
+            Type::Float32 => ctx.f32_type().into(),
             _ => unreachable!()
-        }
-    }
-
-    pub fn can_become(&self, other: &Type) -> bool {
-        match (self, other) {
-            (Type::Int32 | Type::Int64, Type::Int32 | Type::Int64) => true,
-            (Type::Float32 | Type::Float64, Type::Float32 | Type::Float64) => true,
-            _ => false,
         }
     }
 }

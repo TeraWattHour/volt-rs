@@ -1,4 +1,4 @@
-use crate::ast::expressions::{Expression, LocatedExpression, Op};
+use crate::ast::expressions::{Expr, Expression, Op};
 use crate::types::env::TypeEnv;
 use crate::types::Type;
 
@@ -8,12 +8,14 @@ macro_rules! numeric {
     };
 }
 
-pub fn check_expression(expr: &LocatedExpression, env: &TypeEnv) -> Result<Type, String> {
-    match &*expr.value {
+pub fn check_expression(expr: &Expr, env: &TypeEnv) -> Result<Type, String> {
+    match &*expr.inner {
         Expression::Int(_) => Ok(Type::Int),
         Expression::Int32(_) => Ok(Type::Int32),
         Expression::Int64(_) => Ok(Type::Int64),
-        Expression::Identifier(name) => Ok(env.get_type(name)),
+        Expression::Identifier(name) => {
+            unimplemented!()
+        },
 
         Expression::Infix { lhs, op, rhs } => {
             let left_type = check_expression(lhs, env)?;

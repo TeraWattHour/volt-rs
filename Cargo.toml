@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 lalrpop-util = { version = "0.22.1", features = ["lexer", "unicode"] }
 regex = "1.11.1"
+inkwell = { version = "0.5.0", features = ["llvm18-0"] }
+
 
 [build-dependencies]
 lalrpop = "0.22.1"

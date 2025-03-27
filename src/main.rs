@@ -1,8 +1,7 @@
 mod ast;
 mod parser;
 mod types;
-mod compiler;
-mod errors;
+mod macros;
 
 use std::error::Error;
 use std::fs;
@@ -14,14 +13,10 @@ lalrpop_mod!(pub volt);
 
 fn main() -> Result<(), Box<dyn Error>> {
     let content = fs::read_to_string("example.vt")?;
-    let res = volt::FileParser::new().parse(&content).unwrap();
+    let mut res = volt::FileParser::new().parse(&content).unwrap();
 
     let mut env = TypeEnv::new();
-    typecheck_block(&res, &mut env)?;
+    typecheck_block(&mut res, &mut env)?;
 
     Ok(())
-    //
-    // let mut output = File::create("output.ssa").unwrap();
-    // let mut compiler = Compiler::new(&mut output, res);
-    // compiler.generate()
 }

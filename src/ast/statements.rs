@@ -1,33 +1,22 @@
-use crate::ast::expressions::{Expression, LocatedExpression};
+use crate::ast::expressions::{Expression, Op};
+use crate::ast::node::Node;
 
-#[derive(Debug)]
-pub struct LocatedStatement {
-    span: (usize, usize),
-    pub(crate) value: Box<Statement>
-}
-
-impl Statement {
-    pub(crate) fn wrap(inner: Statement, span: (usize, usize)) -> LocatedStatement {
-        LocatedStatement {
-            span,
-            value: Box::new(inner),
-        }
-    }
-}
+pub type Stmt = Node<Statement>;
 
 #[derive(Debug)]
 pub enum Statement {
-    If { condition: LocatedExpression, body: LocatedStatement, otherwise: Option<LocatedStatement> },
-    Let { name: LocatedExpression, value: LocatedExpression },
-    Expression(LocatedExpression),
-    Block(Vec<LocatedStatement>),
-    Function { name: LocatedExpression, args: Vec<(LocatedExpression, LocatedExpression)>, return_type: LocatedExpression, body: LocatedStatement },
-    FunctionDeclaration { name: LocatedExpression, args: Vec<(LocatedExpression, LocatedExpression)>, return_type: LocatedExpression },
-    Return(Option<LocatedExpression>)
+    If { condition: Node<Expression>, body: Node<Statement>, otherwise: Option<Node<Statement>> },
+    Let { name: Node<Expression>, value: Node<Expression> },
+    Expression(Node<Expression>),
+    Block(Vec<Node<Statement>>),
+    Function { name: Node<Expression>, args: Vec<(Node<Expression>, Node<Expression>)>, return_type: Node<Expression>, body: Node<Statement> },
+    FunctionDeclaration { name: Node<Expression>, args: Vec<(Node<Expression>, Node<Expression>)>, return_type: Node<Expression> },
+    Return(Option<Node<Expression>>),
+    Assignment { lhs: Node<Expression>, op: Op, rhs: Node<Expression> },
 }
 
 #[derive(Debug)]
 pub struct Branch {
-    pub condition: LocatedExpression,
-    pub body: Vec<LocatedStatement>
+    pub condition: Node<Expression>,
+    pub body: Vec<Node<Statement>>
 }
