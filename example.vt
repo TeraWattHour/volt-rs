@@ -1,3 +1,7 @@
+fn calculate() -> int {
+    return 3 * 2;
+}
+
 fn main() -> int {
-    return 1i32;
+    return calculate(2);
 }

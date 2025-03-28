@@ -12,7 +12,7 @@ use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 use lalrpop_util::lalrpop_mod;
 use crate::ast::statements::Statement;
-use crate::types::env::TypeEnv;
+use crate::types::checker::TypeEnv;
 
 lalrpop_mod!(pub volt);
 

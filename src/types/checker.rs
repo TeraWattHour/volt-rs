@@ -67,21 +67,9 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         }
 
         let mut returns = false;
-
         for stmt in block {
-            returns |= match &*stmt.inner {
-                Statement::Return(Some(returned)) => {
-                    self.add_return(self.mark_expression(returned)?, stmt);
-                    true
-                }
-                Statement::Return(None) => {
-                    self.add_return(Type::Nothing, stmt);
-                    true
-                }
-                _ => self.check_statement(stmt)?,
-            }
+            returns |= self.check_statement(stmt)?
         }
-
         Ok(returns)
     }
 
@@ -143,6 +131,14 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     Ok(false)
                 }
             }
+            Statement::Return(Some(returned)) => {
+                self.add_return(self.mark_expression(returned)?, stmt);
+                Ok(true)
+            }
+            Statement::Return(None) => {
+                self.add_return(Type::Nothing, stmt);
+                Ok(true)
+            }
             Statement::FunctionDeclaration { .. } => Ok(false),
             Statement::Assignment {..} => unimplemented!(),
             Statement::Return(..) => unreachable!(),
@@ -179,7 +175,22 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
                     _ => return Err("bang ding ow :(".into())
                 })
             }
+            Expression::Call { lhs, args } => {
+                let name = ident!(lhs);
+                let Some(Type::Function { args: expected_args, returned }) = self.lookup(&name) else {
+                    return Err(OpaqueError::cannot_call(self.file_id, lhs));
+                };
+                if args.len() != expected_args.len() {
+                    return Err(OpaqueError::wrong_argument_count(self.file_id, expr, expected_args.len(), args.len()));
+                }
 
+                let arg_types = args.iter().map(|arg| self.mark_expression(arg)).collect::<Result<Vec<_>, _>>()?;
+                if arg_types.iter().zip(expected_args.iter()).any(|(arg, expected)| arg != expected) {
+                    panic!("function `{}` expected arguments of type `{}`, got `{}`", name, expected_args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "), arg_types.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "));
+                }
+
+                Ok(*returned.clone())
+            }
             _ => unimplemented!()
         }
     }

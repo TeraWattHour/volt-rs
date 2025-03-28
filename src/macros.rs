@@ -6,3 +6,12 @@ macro_rules! extract {
         };
     };
 }
+
+#[macro_export]
+macro_rules! variant {
+    ($e:expr, $p:pat) => {
+        let $p = $e else {
+            unreachable!()
+        };
+    };
+}

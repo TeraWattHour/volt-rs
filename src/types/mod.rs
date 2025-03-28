@@ -4,7 +4,7 @@ use inkwell::context::Context;
 use inkwell::types::{AnyType, BasicType, BasicTypeEnum};
 
 pub mod functions;
-pub mod env;
+pub mod checker;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
