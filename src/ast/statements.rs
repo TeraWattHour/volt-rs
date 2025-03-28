@@ -1,16 +1,16 @@
-use crate::ast::expressions::{Expression, Op};
+use crate::ast::expressions::{Expr, Op};
 use crate::ast::node::Node;
 
 pub type Stmt = Node<Statement>;
 
 #[derive(Debug)]
 pub enum Statement {
-    If { condition: Node<Expression>, body: Node<Statement>, otherwise: Option<Node<Statement>> },
-    Let { name: Node<Expression>, value: Node<Expression> },
-    Expression(Node<Expression>),
-    Block(Vec<Node<Statement>>),
-    Function { name: Node<Expression>, args: Vec<(Node<Expression>, Node<Expression>)>, return_type: Node<Expression>, body: Node<Statement> },
-    FunctionDeclaration { name: Node<Expression>, args: Vec<(Node<Expression>, Node<Expression>)>, return_type: Node<Expression> },
-    Return(Option<Node<Expression>>),
-    Assignment { lhs: Node<Expression>, op: Op, rhs: Node<Expression> },
+    If { condition: Expr, body: Stmt, otherwise: Option<Stmt> },
+    Let { name: Expr, value: Expr },
+    Expression(Expr),
+    Block(Vec<Stmt>),
+    Function { name: Expr, args: Vec<(Expr, Expr)>, return_type: Expr, body: Stmt },
+    FunctionDeclaration { name: Expr, args: Vec<(Expr, Expr)>, return_type: Expr },
+    Return(Option<Expr>),
+    Assignment { lhs: Expr, op: Op, rhs: Expr },
 }

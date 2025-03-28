@@ -13,7 +13,7 @@ pub fn typecheck_block(block: &Stmt, env: &mut TypeEnv) -> Result<bool, Box<dyn 
 
     let mut returns = false;
     for stmt in program {
-        returns |= typecheck_statement(stmt, env)?
+        returns |= typecheck_statement(stmt, env)?;
     }
 
     Ok(returns)

@@ -20,7 +20,6 @@ pub enum Type {
 
     Function { args: Vec<Type>, returned: Box<Type> },
     Nothing,
-    Unknown
 }
 
 impl Type {
