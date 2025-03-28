@@ -1,17 +1,18 @@
 use std::cell::RefCell;
+use std::ops::Range;
 use crate::types::Type;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node<T> {
     pub inner: Box<T>,
     pub span: Span,
     pub resolved_type: RefCell<Option<Type>>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Span {
     start: usize,
-    end: usize
+    end: usize,
 }
 
 impl<T> Node<T> {
@@ -21,5 +22,8 @@ impl<T> Node<T> {
             span: Span { start: span.0, end: span.1 },
             resolved_type: RefCell::new(None)
         }
+    }
+    pub fn span(&self) -> Range<usize> {
+        self.span.start..self.span.end
     }
 }

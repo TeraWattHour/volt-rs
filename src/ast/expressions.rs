@@ -7,6 +7,7 @@ pub type Expr = Node<Expression>;
 pub enum Expression {
     Infix { lhs: Expr, op: Op, rhs: Expr },
 
+    Boolean(bool),
     Int(isize),
     Int32(i32),
     Int64(i64),
@@ -53,6 +54,16 @@ macro_rules! ident {
     ($i:expr) => {
         match &*$i.inner {
             Expression::Identifier(name) => name.clone(),
+            _ => unreachable!(),
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! typ {
+    ($i:expr) => {
+        match &*$i.inner {
+            Expression::Type(typ) => typ.clone(),
             _ => unreachable!(),
         }
     };

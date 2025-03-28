@@ -1,10 +1,11 @@
 use std::error::Error;
 use crate::ast::expressions::Expression;
 use crate::ast::statements::{Stmt, Statement};
+use crate::errors::OpaqueError;
 use crate::extract;
 use crate::types::Type;
 
-pub fn function_definition_type(definition: &Stmt) -> Result<Type, Box<dyn Error>> {
+pub fn function_definition_type(definition: &Stmt) -> Result<Type, OpaqueError> {
     let (args, return_type) = match &*definition.inner {
         Statement::Function { args, return_type, ..} | Statement::FunctionDeclaration { args, return_type, ..} => (args, return_type),
         _ => unreachable!()
@@ -18,3 +19,4 @@ pub fn function_definition_type(definition: &Stmt) -> Result<Type, Box<dyn Error
 
     Ok(Type::Function { args: argument_types, returned: Box::new(return_type.clone()) })
 }
+
