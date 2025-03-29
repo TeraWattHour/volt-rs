@@ -1,6 +1,6 @@
 use std::str::FromStr;
 use crate::parser::numeric_literals;
-use crate::types::Type;
+use crate::types::typ::Type;
 use crate::ast::expressions::{Expr, Expression, Op};
 use crate::ast::statements::{Stmt, Statement};
 use crate::ast::node::Node;
@@ -51,6 +51,10 @@ Block: Stmt = {
 
 Expr = {
     #[precedence(level="1")]
+    <start:@L> <op:Prefix> <rhs:Expr> <end:@R> =>
+        Node::new(Expression::Prefix { op, rhs }, (start, end)),
+
+    #[precedence(level="1")]
     Term,
 
     #[precedence(level="2")] #[assoc(side="left")]
@@ -98,6 +102,11 @@ Lvalue = {
     <s:@L> <lhs:Lvalue> "(" <args:List<Expr>> ")" <e:@R> => Node::new(Expression::Call { lhs, args }, (s, e)),
     <s:@L> <lhs:Lvalue> "." <rhs:Identifier> <e:@R> => Node::new(Expression::FieldAccess { lhs, rhs, dereferenced: false }, (s, e)),
     <s:@L> <lhs:Lvalue> "->" <rhs:Identifier> <e:@R> => Node::new(Expression::FieldAccess { lhs, rhs, dereferenced: true }, (s, e)),
+}
+
+Prefix: Op = {
+    "!" => Op::Not,
+    "-" => Op::Negate,
 }
 
 Additive: Op = {

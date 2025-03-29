@@ -1,7 +1,8 @@
-fn calculate() -> int {
-    return 3 * 2;
+fn main() -> int {
+    return test();
 }
 
-fn main() -> int {
-    return calculate(2);
+fn test() -> Nothing {
+    1 + 2;
+    return;
 }

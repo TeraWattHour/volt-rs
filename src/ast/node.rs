@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::ops::Range;
-use crate::types::Type;
+use crate::types::typ::Type;
 
 #[derive(Debug, Clone)]
 pub struct Node<T> {

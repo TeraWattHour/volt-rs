@@ -3,6 +3,7 @@ mod parser;
 mod types;
 mod macros;
 mod errors;
+mod compiler;
 
 use std::error::Error;
 use std::fs;
@@ -10,8 +11,10 @@ use std::process::exit;
 use codespan_reporting::files::SimpleFiles;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
+use inkwell::context::Context;
 use lalrpop_util::lalrpop_mod;
 use crate::ast::statements::Statement;
+use crate::compiler::compiler::CompilerContext;
 use crate::types::checker::TypeEnv;
 
 lalrpop_mod!(pub volt);
@@ -32,7 +35,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         term::emit(&mut writer.lock(), &config, &files, &error.diagnostic)?;
         exit(1);
     }
-
+    let mut context = Context::create();
+    let mut compiler = CompilerContext::new(&mut context);
+    let compiled = compiler.compile_program(program)?;
+    compiled.print_to_stderr();
 
     Ok(())
 }

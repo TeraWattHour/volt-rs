@@ -1,6 +1,6 @@
 use std::str::FromStr;
 use crate::ast::expressions::Expression;
-use crate::types::Type;
+use crate::types::typ::Type;
 
 fn remove_separators(s: &str) -> String {
     s.replace("|'", "")

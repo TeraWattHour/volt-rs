@@ -4,8 +4,8 @@ use std::ops::Range;
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use crate::ast::expressions::Expr;
 use crate::ast::statements::{Statement, Stmt};
-use crate::typ;
-use crate::types::Type;
+use crate::{extract, typ, variant};
+use crate::types::typ::Type;
 
 #[derive(Debug)]
 pub struct OpaqueError {
@@ -58,16 +58,34 @@ impl OpaqueError {
 
     pub fn wrong_argument_count(file_id: usize, called: &Expr, expected: usize, got: usize) -> Self {
         let message = "wrong number of arguments".to_string();
-        let args = match &*called.inner {
-            Expression::Call { args, .. } => args,
-            _ => unreachable!()
-        };
+        extract!(called, Expression::Call { args, .. });
+        let highlight = merge_ranges(args.iter().map(|arg| arg.span()).collect()).unwrap_or(called.span());
         OpaqueError {
             diagnostic: Diagnostic::error()
                 .with_message(&message)
                 .with_labels(vec![
-                    Label::primary(file_id, merge_ranges(args.iter().map(|arg| arg.span()).collect()).unwrap_or(called.span())).with_message(format!("function takes {}, but {} given", plural!(expected, "argument", "arguments"), plural!(got, "was", "were"))),
+                    Label::primary(file_id, highlight)
+                        .with_message(format!("function takes {}, but {} given", plural!(expected, "argument", "arguments"), plural!(got, "was", "were"))),
                 ]),
+            message,
+        }
+    }
+
+    pub fn incompatible_argument_types(file_id: usize, called: &Expr, arguments: &Vec<((usize, &Type), &Type)>) -> Self {
+        let message = "incompatible argument types".to_string();
+        extract!(called, Expression::Call { args, .. });
+
+        OpaqueError {
+            diagnostic: Diagnostic::error()
+                .with_message(&message)
+                .with_labels(
+                    arguments.iter().map(|((i, got), expected)| {
+                        let location = args.get(*i).map(|arg| arg.span()).unwrap_or(called.span());
+                        Label::primary(file_id, location)
+                            .with_message(format!("argument {}: expected `{}`, got `{}`", i + 1, expected, got))
+                    })
+                        .collect()
+                ),
             message,
         }
     }
@@ -75,21 +93,11 @@ impl OpaqueError {
 
 
 fn merge_ranges(ranges: Vec<Range<usize>>) -> Option<Range<usize>> {
-    if ranges.is_empty() {
-        return None;
+    let mut it = ranges.iter();
+    match it.next() {
+        Some(first) => Some(it.fold(first.clone(), |acc, range| acc.start..range.end)),
+        None => None,
     }
-
-    let mut merged = ranges[0].clone();
-
-    for range in ranges.iter().skip(1) {
-        if range.start <= merged.end {
-            merged.end = merged.end.max(range.end);
-        } else {
-            return None;
-        }
-    }
-
-    Some(merged)
 }
 
 

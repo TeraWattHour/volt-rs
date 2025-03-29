@@ -1,10 +1,11 @@
 use crate::ast::node::Node;
-use crate::types::Type;
+use crate::types::typ::Type;
 
 pub type Expr = Node<Expression>;
 
 #[derive(Debug)]
 pub enum Expression {
+    Prefix { op: Op, rhs: Expr },
     Infix { lhs: Expr, op: Op, rhs: Expr },
 
     Boolean(bool),
@@ -23,6 +24,9 @@ pub enum Expression {
 
 #[derive(Debug)]
 pub enum Op {
+    Not,
+    Negate,
+
     Plus,
     Minus,
 
