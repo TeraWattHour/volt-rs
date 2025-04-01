@@ -1,10 +1,10 @@
-fn main() -> int {
-    let a = 10;
-    if (a == 2) { return 30; }
-    else if (a == 1) { return 10; }
-    else { return a * 10; }
+declare fn printf(d: int) -> i64
+
+fn fibonacci(l: int, r: int, n: int) -> int {
+    if (n == 0) { return l; }
+    return fibonacci(r, l + r, n-1);
 }
 
-fn nothing() -> Nothing {
-    return;
+fn main() -> int {
+    return fibonacci(0, 1, 10);
 }

@@ -150,7 +150,7 @@ impl<'a, 'b> TypeEnv<'a> {
                             return Err(vec![TypeError::WrongReturnType { returned_by: stmt, returned_type, expected_by: Some(expected_by), expected_type: expected_type.clone() }]);
                         }
                     }
-                    None => unreachable!("unexpected return")
+                    None => return Err(vec![TypeError::WrongReturnType { returned_by: stmt, returned_type, expected_by: None, expected_type: Type::Nothing }])
                 }
                 Ok(())
             }

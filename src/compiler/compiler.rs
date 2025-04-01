@@ -3,10 +3,10 @@ use std::error::Error;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{AnyType, AnyTypeEnum, BasicType, BasicTypeEnum};
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
+use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, PointerValue};
 use crate::ast::statements::{Statement, Stmt};
-use crate::{extract, ident};
+use crate::{extract, ident, typ};
 use crate::ast::expressions::{Expr, Expression, Op};
 use crate::types::typ::Type;
 
@@ -15,6 +15,7 @@ pub struct CompilerContext<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     named_values: HashMap<String, PointerValue<'ctx>>,
+    functions: HashMap<String, FunctionValue<'ctx>>,
 }
 
 impl <'ctx> CompilerContext<'ctx> {
@@ -24,10 +25,30 @@ impl <'ctx> CompilerContext<'ctx> {
             module: context.create_module("default"),
             builder: context.create_builder(),
             named_values: HashMap::new(),
+            functions: HashMap::new(),
         }
     }
 
     pub fn compile_program(&mut self, program: &[Stmt]) -> Result<&Module<'ctx>, Box<dyn Error>> {
+        let functions = program.iter().filter(|stmt| matches!(&*stmt.inner, Statement::Function {..} | Statement::FunctionDeclaration { .. })).collect::<Vec<_>>();
+        for function in functions {
+            match &*function.inner {
+                Statement::FunctionDeclaration { name, args, return_type } | Statement::Function { name, args, return_type, .. } => {
+                    extract!(return_type, Expression::Type(return_type));
+                    let function_value = self.module.add_function(
+                    &ident!(name),
+                        return_type.fn_type(
+                            self.context,
+                            &args.iter().map(|(name, typ)| basic_type_to_metadata_type(typ!(typ).basic_type(self.context))).collect::<Vec<_>>()
+                        ),
+                        None
+                    );
+                    self.functions.insert(ident!(name), function_value);
+                }
+                _ => ()
+            }
+        }
+
         for stmt in program {
             match &*stmt.inner {
                 Statement::Function { .. } => self.compile_function(stmt)?,
@@ -53,7 +74,6 @@ impl <'ctx> CompilerContext<'ctx> {
 
                 let function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
                 let alloca = self.create_entry_block_alloca(function, &ident!(name), typ.basic_type(self.context))?;
-
                 self.builder.build_store(alloca, llvm_value)?;
                 self.named_values.insert(ident!(name), alloca);
             }
@@ -106,9 +126,16 @@ impl <'ctx> CompilerContext<'ctx> {
         extract!(function, Statement::Function { name, args, return_type, body });
         extract!(return_type, Expression::Type(return_type));
 
-        let function_value = self.module.add_function(&ident!(name), return_type.fn_type(self.context, &[]), None);
-        let entry = self.context.append_basic_block(function_value, "entry");
+        let function_value = self.functions.get(&ident!(name)).unwrap();
+
+        let entry = self.context.append_basic_block(*function_value, "entry");
         self.builder.position_at_end(entry);
+
+        for (val, (name, _)) in function_value.get_param_iter().zip(args) {
+            let alloca = self.create_entry_block_alloca(*function_value, &ident!(name), val.get_type())?;
+            self.builder.build_store(alloca, val)?;
+            self.named_values.insert(ident!(name), alloca);
+        }
 
         self.compile_block(body)?;
 
@@ -156,6 +183,13 @@ impl <'ctx> CompilerContext<'ctx> {
                     _ => unimplemented!()
                 }
             }
+            Expression::Call { lhs, args } => {
+                let function_name = ident!(lhs);
+                let function = self.module.get_function(&function_name).unwrap();
+
+                let args = &args.iter().map(|arg| basic_value_to_metadata_value(self.expression(arg).unwrap())).collect::<Vec<_>>();
+                Ok(self.builder.build_call(function, args, "calltemp")?.try_as_basic_value().unwrap_left())
+            }
             _ => unimplemented!("compilation of expression {:?} not implemented", expr)
         }
     }
@@ -190,4 +224,26 @@ impl <'ctx> CompilerContext<'ctx> {
         Ok(alloca)
     }
 
+}
+
+fn basic_type_to_metadata_type(basic_type: BasicTypeEnum) -> BasicMetadataTypeEnum {
+    match basic_type {
+        BasicTypeEnum::ArrayType(t) => t.into(),
+        BasicTypeEnum::FloatType(t) => t.into(),
+        BasicTypeEnum::IntType(t) => t.into(),
+        BasicTypeEnum::PointerType(t) => t.into(),
+        BasicTypeEnum::StructType(t) => t.into(),
+        BasicTypeEnum::VectorType(t) => t.into(),
+    }
+}
+
+fn basic_value_to_metadata_value(basic_value: BasicValueEnum) -> BasicMetadataValueEnum {
+    match basic_value {
+        BasicValueEnum::ArrayValue(t) => t.into(),
+        BasicValueEnum::FloatValue(t) => t.into(),
+        BasicValueEnum::IntValue(t) => t.into(),
+        BasicValueEnum::PointerValue(t) => t.into(),
+        BasicValueEnum::StructValue(t) => t.into(),
+        BasicValueEnum::VectorValue(t) => t.into(),
+    }
 }
