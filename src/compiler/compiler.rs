@@ -204,7 +204,15 @@ impl <'ctx> CompilerContext<'ctx> {
             Op::Slash => self.builder.build_int_signed_div(l, r, "divtemp"),
             Op::Modulo => self.builder.build_int_signed_rem(l, r, "remtemp"),
             Op::Eq => self.builder.build_int_compare(inkwell::IntPredicate::EQ, l, r, "eqtemp"),
-            _ => unimplemented!()
+            Op::Neq => self.builder.build_int_compare(inkwell::IntPredicate::NE, l, r, "neqtemp"),
+
+            Op::Lte => self.builder.build_int_compare(inkwell::IntPredicate::SLE, l, r, "ltetemp"),
+            Op::Lt => self.builder.build_int_compare(inkwell::IntPredicate::SLT, l, r, "lttemp"),
+            Op::Gte => self.builder.build_int_compare(inkwell::IntPredicate::SGE, l, r, "ltetemp"),
+            Op::Gt => self.builder.build_int_compare(inkwell::IntPredicate::SGT, l, r, "lttemp"),
+            Op::Negate => self.builder.build_int_neg(l, "negtmp"),
+
+            _ => unreachable!("operator `{:?}` is not implemented for integer values", op)
         }?.into())
     }
 

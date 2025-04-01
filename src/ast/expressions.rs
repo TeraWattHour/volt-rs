@@ -8,6 +8,9 @@ pub enum Expression {
     Prefix { op: Op, rhs: Expr },
     Infix { lhs: Expr, op: Op, rhs: Expr },
 
+    AddressOf(Expr),
+    Dereference(Expr),
+
     Boolean(bool),
     Int(isize),
     Int32(i32),
@@ -17,6 +20,8 @@ pub enum Expression {
 
     Identifier(String),
 
+    String(String),
+
     IndexAccess { lhs: Expr, rhs: Expr },
     FieldAccess { lhs: Expr, rhs: Expr, dereferenced: bool },
     Call { lhs: Expr, args: Vec<Expr> },
@@ -24,6 +29,9 @@ pub enum Expression {
 
 #[derive(Debug)]
 pub enum Op {
+    AddressOf,
+    Dereference,
+
     Not,
     Negate,
 

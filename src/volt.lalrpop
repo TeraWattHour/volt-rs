@@ -51,37 +51,47 @@ Block: Stmt = {
 
 Expr = {
     #[precedence(level="1")]
+    Term,
+
+
+    #[precedence(level="2")]
     <start:@L> <op:Prefix> <rhs:Expr> <end:@R> =>
         Node::new(Expression::Prefix { op, rhs }, (start, end)),
 
-    #[precedence(level="1")]
-    Term,
+    #[precedence(level="2")]
+    <start:@L> "*" <rhs:Expr> <end:@R> =>
+        Node::new(Expression::Dereference(rhs), (start, end)),
 
-    #[precedence(level="2")] #[assoc(side="left")]
+    #[precedence(level="2")]
+    <start:@L> "&" <rhs:Expr> <end:@R> =>
+        Node::new(Expression::AddressOf(rhs), (start, end)),
+
+
+    #[precedence(level="10")] #[assoc(side="left")]
     <start:@L> <lhs:Expr> <op:Multiplicative> <rhs:Expr> <end:@R> =>
         Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
-    #[precedence(level="3")] #[assoc(side="left")]
+    #[precedence(level="20")] #[assoc(side="left")]
     <start:@L> <lhs:Expr> <op:Additive> <rhs:Expr> <end:@R> =>
         Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
-    #[precedence(level="4")] #[assoc(side="left")]
+    #[precedence(level="30")] #[assoc(side="left")]
     <start:@L> <lhs:Expr> <op:Comparative> <rhs:Expr> <end:@R> =>
         Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
-    #[precedence(level="5")] #[assoc(side="left")]
+    #[precedence(level="40")] #[assoc(side="left")]
     <start:@L> <lhs:Expr> <op:Equivalence> <rhs:Expr> <end:@R> =>
         Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
-    #[precedence(level="6")] #[assoc(side="left")]
+    #[precedence(level="50")] #[assoc(side="left")]
     <start:@L> <lhs:Expr> <op:LogicalConjunction> <rhs:Expr> <end:@R> =>
         Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
-    #[precedence(level="7")] #[assoc(side="left")]
+    #[precedence(level="60")] #[assoc(side="left")]
     <start:@L> <lhs:Expr> <op:LogicalAlternative> <rhs:Expr> <end:@R> =>
         Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 
-    #[precedence(level="8")] #[assoc(side="right")]
+    #[precedence(level="70")] #[assoc(side="right")]
     <start:@L> <lhs:Lvalue> <op:ShortAssignment> <rhs:Expr> <end:@R> =>
         Node::new(Expression::Infix { lhs, op, rhs }, (start, end)),
 };
@@ -162,17 +172,13 @@ Typ: Expr = {
     <s:@L> <t:RawTyp> <e:@R> => Node::new(Expression::Type(t), (s, e))
 }
 
-RawTyp = {
-    Int64,
-    Int32,
-    Int,
-    Nothing,
+RawTyp: Type = {
+    "i64" => Type::Int64,
+    "i32" => Type::Int32,
+    "int" => Type::Int,
+    "Nothing" => Type::Nothing,
+    "&" <t:RawTyp> => Type::Address(Box::new(t))
 }
-
-Int64:    Type = { "i64" => Type::Int64 }
-Int32:    Type = { "i32" => Type::Int32 }
-Int:      Type = { "int" => Type::Int }
-Nothing:  Type = { "Nothing" => Type::Nothing }
 
 BinaryInteger: Expr = <s:@L> <v:r"0[bB][01]([_']?[01])*([ui](64|32))?"> <e:@R> => Node::new(numeric_literals::binary_integer(v), (s, e));
 DecimalInteger: Expr = <s:@L> <v:r"0|[1-9]([_']?[0-9])*([ui](64|32))?"> <e:@R> => Node::new(numeric_literals::decimal_integer(v), (s, e));

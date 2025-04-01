@@ -1,4 +1,5 @@
 use std::fmt::Formatter;
+use inkwell::AddressSpace;
 use inkwell::context::Context;
 use inkwell::types::{AnyType, AnyTypeEnum, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType};
 
@@ -13,8 +14,11 @@ pub enum Type {
 
     Bool,
 
+    String,
     Function { args: Vec<Type>, returned: Box<Type> },
     Nothing,
+
+    Address(Box<Type>),
 }
 
 impl Type {
@@ -30,6 +34,7 @@ impl Type {
             Type::Float64 => Ok(ctx.f64_type().into()),
             Type::Float32 => Ok(ctx.f32_type().into()),
             Type::Bool => Ok(ctx.bool_type().into()),
+            Type::Address(_) => Ok(ctx.ptr_type(AddressSpace::default()).into()),
             _ => Err(format!("Cannot convert type `{}` to basic type", self))
         }
     }
@@ -50,6 +55,7 @@ impl Type {
             Type::Float32 => ctx.f32_type().fn_type(args, false),
             Type::Bool => ctx.bool_type().fn_type(args, false),
             Type::Nothing => ctx.void_type().fn_type(args, false),
+            Type::Address(_) => ctx.ptr_type(AddressSpace::default()).fn_type(args, false),
             _ => unreachable!()
         }
     }
@@ -68,6 +74,8 @@ impl std::fmt::Display for Type {
                 let args_str = args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ");
                 write!(f, "({}) -> {}", args_str, returned)
             }
+            Type::String => write!(f, "string"),
+            Type::Address(t) => write!(f, "&{}", t),
             Type::Nothing => write!(f, "Nothing"),
         }
     }

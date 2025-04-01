@@ -1,10 +1,9 @@
-declare fn printf(d: int) -> i64
-
-fn fibonacci(l: int, r: int, n: int) -> int {
-    if (n == 0) { return l; }
-    return fibonacci(r, l + r, n-1);
+fn dereferencing(a: &int) -> int {
+    return *a;
 }
 
+
 fn main() -> int {
-    return fibonacci(0, 1, 10);
+    let a = 10;
+    return dereferencing(&a);
 }

@@ -246,6 +246,13 @@ impl<'a, 'b> TypeEnv<'a> {
 
                 Ok(*returned.clone())
             }
+            Expression::AddressOf(rhs) => Ok(Type::Address(Box::new(self.mark_expression(rhs)?))),
+            Expression::Dereference(rhs) => {
+                match self.mark_expression(rhs)? {
+                    Type::Address(t) => Ok(*t),
+                    _ => { unimplemented!("cant dereference non-pointer") }
+                }
+            }
             _ => unimplemented!()
         }
     }
