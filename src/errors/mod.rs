@@ -4,7 +4,8 @@ use std::ops::Range;
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use crate::ast::expressions::Expr;
 use crate::ast::statements::{Statement, Stmt};
-use crate::{extract, typ, variant};
+use crate::{extract, typ};
+use crate::types::checker::TypeError;
 use crate::types::typ::Type;
 
 #[derive(Debug)]
@@ -12,7 +13,6 @@ pub struct OpaqueError {
     pub message: String,
     pub diagnostic: Diagnostic<usize>,
 }
-
 
 macro_rules! plural {
     ($count:expr, $singular:expr, $plural:expr) => {
@@ -126,6 +126,30 @@ impl From<&str> for OpaqueError {
         OpaqueError {
             message: message.to_string(),
             diagnostic: Diagnostic::error().with_message(message.to_string()),
+        }
+    }
+}
+
+impl<'a> From<TypeError<'a>> for OpaqueError {
+    fn from(value: TypeError<'a>) -> Self {
+        match value {
+            TypeError::WrongReturnType { returned_by, returned_type, expected_by, expected_type } => {
+                let message = "incompatible return types".to_string();
+                let mut labels = vec![
+                    Label::primary(0, returned_by.span()).with_message(format!("got `{}`", returned_type)),
+                ];
+
+                if let Some(expected_by) = expected_by {
+                    labels.push(Label::secondary(0, expected_by.span()).with_message(format!("expected function to return a value of type `{}`", expected_type)));
+                }
+
+                OpaqueError {
+                    diagnostic: Diagnostic::error()
+                        .with_message(&message)
+                        .with_labels(labels),
+                    message,
+                }
+            }
         }
     }
 }

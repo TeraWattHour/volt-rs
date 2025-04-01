@@ -15,6 +15,7 @@ use inkwell::context::Context;
 use lalrpop_util::lalrpop_mod;
 use crate::ast::statements::Statement;
 use crate::compiler::compiler::CompilerContext;
+use crate::errors::OpaqueError;
 use crate::types::checker::TypeEnv;
 
 lalrpop_mod!(pub volt);
@@ -31,8 +32,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     extract!(res, Statement::Block(program));
     let mut env = TypeEnv::new(file_id);
-    if let Err(error) = env.check_block(program) {
-        term::emit(&mut writer.lock(), &config, &files, &error.diagnostic)?;
+    if let Err(error) = env.check_block(program, None) {
+        for err in error {
+            let err: OpaqueError = err.clone().into();
+            term::emit(&mut writer.lock(), &config, &files, &err.diagnostic)?;
+        }
         exit(1);
     }
     let mut context = Context::create();

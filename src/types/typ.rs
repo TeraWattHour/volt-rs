@@ -19,14 +19,18 @@ pub enum Type {
 
 impl Type {
     pub fn basic_type<'a>(&self, ctx: &'a Context) -> BasicTypeEnum<'a> {
+        self.try_basic_type(ctx).unwrap()
+    }
+
+    pub fn try_basic_type<'a>(&self, ctx: &'a Context) -> Result<BasicTypeEnum<'a>, String> {
         match self {
-            Type::Int => ctx.i64_type().into(),
-            Type::Int64 => ctx.i64_type().into(),
-            Type::Int32 => ctx.i32_type().into(),
-            Type::Float64 => ctx.f64_type().into(),
-            Type::Float32 => ctx.f32_type().into(),
-            Type::Bool => ctx.bool_type().into(),
-            _ => unreachable!()
+            Type::Int => Ok(ctx.i64_type().into()),
+            Type::Int64 => Ok(ctx.i64_type().into()),
+            Type::Int32 => Ok(ctx.i32_type().into()),
+            Type::Float64 => Ok(ctx.f64_type().into()),
+            Type::Float32 => Ok(ctx.f32_type().into()),
+            Type::Bool => Ok(ctx.bool_type().into()),
+            _ => Err(format!("Cannot convert type `{}` to basic type", self))
         }
     }
 

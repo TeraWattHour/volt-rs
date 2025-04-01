@@ -1,10 +1,8 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use crate::ast::statements::{Statement, Stmt};
 use crate::ast::expressions::{Expression, Expr, Op};
 use crate::{extract, ident};
-use crate::errors::OpaqueError;
 use crate::types::typ::Type;
 
 macro_rules! numeric {
@@ -13,33 +11,38 @@ macro_rules! numeric {
     };
 }
 
-#[derive(Debug)]
-pub struct TypeEnv<'a, 'b> {
-    file_id: usize,
-    variables: HashMap<String, Type>,
-    returns: RefCell<Vec<(Type, &'b Stmt)>>,
-    parent: Option<&'a TypeEnv<'a, 'b>>,
-    isolated_returns: bool,
+#[derive(Debug, Clone)]
+pub enum TypeError<'a> {
+    WrongReturnType {
+        returned_by: &'a Stmt,
+        returned_type: Type,
+        expected_by: Option<&'a Stmt>,
+        expected_type: Type,
+    }
 }
 
-impl<'a, 'b> TypeEnv<'a, 'b> {
+
+#[derive(Debug)]
+pub struct TypeEnv<'a> {
+    file_id: usize,
+    variables: HashMap<String, Type>,
+    parent: Option<&'a TypeEnv<'a>>,
+}
+
+impl<'a, 'b> TypeEnv<'a> {
     pub fn new(file_id: usize) -> Self {
         TypeEnv {
             file_id,
-            returns: RefCell::new(Vec::new()),
             variables: HashMap::new(),
             parent: None,
-            isolated_returns: true,
         }
     }
 
-    fn nested(&'a self, isolated_returns: bool) -> TypeEnv<'a, 'b> {
+    fn nested(&'a self) -> TypeEnv<'a> {
         TypeEnv {
             file_id: self.file_id,
-            returns: RefCell::new(Vec::new()),
             variables: HashMap::new(),
             parent: Some(self),
-            isolated_returns
         }
     }
 
@@ -55,121 +58,155 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
             })
     }
 
-    fn add_return(&self, typ: Type, stmt: &'b Stmt) {
-        self.returns.borrow_mut().push((typ.clone(), stmt));
-
-        if !self.isolated_returns {
-            if let Some(ref parent) = self.parent {
-                parent.add_return(typ, stmt);
-            }
-        }
-    }
-
-    // returns Ok(true) if the block returns
-    pub fn check_block(&mut self, block: &'b Vec<Stmt>) -> Result<bool, OpaqueError> {
-        if let None = self.parent {
+    pub fn check_block(&mut self, block: &'b Vec<Stmt>, expected_return: Option<(&Type, &'b Stmt)>) -> Result<(), Vec<TypeError<'b>>> {
+        if self.parent.is_none() {
             self.register_functions(block)?;
         }
 
-        let mut returns = false;
+        let mut errors = Vec::new();
         for stmt in block {
-            returns |= self.check_statement(stmt)?
+            if let Err(ref mut statement_errors) = self.check_statement(stmt, expected_return) {
+                errors.append(statement_errors);
+            }
         }
-        Ok(returns)
+
+        if !errors.is_empty() {
+            return Err(errors)
+        }
+
+        Ok(())
     }
 
-    fn check_statement(&mut self, stmt: &'b Stmt) -> Result<bool, OpaqueError> {
+    fn check_statement(&mut self, stmt: &'b Stmt, expected_return: Option<(&Type, &'b Stmt)>) -> Result<(), Vec<TypeError<'b>>> {
         match &*stmt.inner {
             Statement::Let { name, value } => {
                 self.insert(ident!(name), self.mark_expression(value)?);
-                Ok(false)
+                Ok(())
             }
             Statement::Expression(expr) => {
                 self.mark_expression(expr)?;
-                Ok(false)
+                Ok(())
             }
             Statement::Block(program) => {
-                let mut block_env = self.nested(false);
-                block_env.check_block(program)
+                let mut block_env = self.nested();
+                block_env.check_block(program, expected_return)
             }
             Statement::Function { args, return_type, body, .. } => {
-                let mut function_env = self.nested(true);
+                let mut function_env = self.nested();
                 for (name, typ) in args {
                     extract!(typ, Expression::Type(typ));
                     function_env.insert(ident!(name), typ.clone());
                 }
 
+                extract!(return_type, Expression::Type(function_must_return));
+                if !Self::does_block_always_return(body) && function_must_return != &Type::Nothing {
+                    unimplemented!("function doesnt always return")
+                }
+
                 extract!(body, Statement::Block(body));
-                let returns = function_env.check_block(body)?;
-                extract!(return_type, Expression::Type(expected));
+                function_env.check_block(body, Some((function_must_return, stmt)))?;
 
-                // function has to return something if its return type is not `Nothing`
-                if !returns && expected != &Type::Nothing {
-                    return Err(OpaqueError::incompatible_return_types(self.file_id, return_type, &vec![]));
-                }
-
-                let returns = function_env.returns.borrow();
-
-                let unexpected_returns: Vec<_> = returns.iter().filter(|(got, _)| got != expected).collect();
-                if unexpected_returns.len() > 0 {
-                    return Err(OpaqueError::incompatible_return_types(self.file_id, return_type, &unexpected_returns));
-                }
-
-                Ok(true)
+                Ok(())
             }
             Statement::If { condition, body, otherwise } => {
                 if self.mark_expression(condition)? != Type::Bool {
-                    return Err("if condition must be of type bool".into())
+                    unimplemented!("if condition must be of type bool");
+                    // return Err("if condition must be of type bool".into())
                 }
 
-                let mut block_env = self.nested(false);
+                let mut block_env = self.nested();
                 extract!(body, Statement::Block(body));
-                let mut returns = block_env.check_block(body)?;
+
+                let mut errors = Vec::new();
+                if let Err(ref mut err) = block_env.check_block(body, expected_return) {
+                    errors.append(err);
+                }
 
                 if let Some(ref otherwise) = otherwise {
-                    returns &= match &*otherwise.inner {
-                        Statement::If { .. } => self.check_statement(otherwise)?,
-                        Statement::Block(block) => self.check_block(block)?,
+                    if let Err(ref mut err) = match &*otherwise.inner {
+                        Statement::If { .. } => self.check_statement(otherwise, expected_return),
+                        Statement::Block(block) => self.check_block(block, expected_return),
                         _ => unreachable!()
-                    };
-
-                    Ok(returns)
-                } else {
-                    Ok(false)
+                    } {
+                        errors.append(err);
+                    }
                 }
+
+                if !errors.is_empty() {
+                    return Err(errors);
+                }
+
+                Ok(())
             }
-            Statement::Return(Some(returned)) => {
-                self.add_return(self.mark_expression(returned)?, stmt);
-                Ok(true)
+            Statement::Return(returned) => {
+                let returned_type = match returned {
+                    Some(returned) => self.mark_expression(returned)?,
+                    None => Type::Nothing
+                };
+
+                match expected_return {
+                    Some((expected_type, expected_by)) => {
+                        if &returned_type != expected_type {
+                            return Err(vec![TypeError::WrongReturnType { returned_by: stmt, returned_type, expected_by: Some(expected_by), expected_type: expected_type.clone() }]);
+                        }
+                    }
+                    None => unreachable!("unexpected return")
+                }
+                Ok(())
             }
-            Statement::Return(None) => {
-                self.add_return(Type::Nothing, stmt);
-                Ok(true)
-            }
-            Statement::FunctionDeclaration { .. } => Ok(false),
+            Statement::FunctionDeclaration { .. } => Ok(()),
             Statement::Assignment {..} => unimplemented!(),
         }
     }
 
-    fn mark_expression(&self, expr: &Expr) -> Result<Type, OpaqueError> {
+    fn does_block_always_return(block: &'b Stmt) -> bool {
+        extract!(block, Statement::Block(block));
+
+        for stmt in block {
+            if Self::does_statement_always_return(stmt) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn does_statement_always_return(stmt: &'b Stmt) -> bool {
+        match &*stmt.inner {
+            Statement::Return(_) => true,
+            Statement::Block(_) => Self::does_block_always_return(stmt),
+            Statement::If { body, otherwise, .. } => {
+                let mut returns = Self::does_block_always_return(body);
+                returns &= match otherwise {
+                    Some(otherwise) => Self::does_statement_always_return(&otherwise),
+                    None => false
+                };
+
+                returns
+            },
+            _ => false
+        }
+    }
+
+    fn mark_expression(&self, expr: &Expr) -> Result<Type, Vec<TypeError<'b>>> {
         let typ = self.check_expression(expr)?;
         *expr.resolved_type.borrow_mut() = Some(typ.clone());
         Ok(typ)
     }
 
-    fn check_expression(&self, expr: &Expr) -> Result<Type, OpaqueError> {
+    fn check_expression(&self, expr: &Expr) -> Result<Type, Vec<TypeError<'b>>> {
         match &*expr.inner {
             Expression::Boolean(_) => Ok(Type::Bool),
             Expression::Int(_) => Ok(Type::Int),
             Expression::Int32(_) => Ok(Type::Int32),
             Expression::Int64(_) => Ok(Type::Int64),
-            Expression::Identifier(name) => self.lookup(name).ok_or("undefined variable".into()),
+            Expression::Identifier(name) => Ok(self.lookup(name).unwrap()),
             Expression::Prefix { op, rhs } => {
                 let rhs_type = self.mark_expression(rhs)?;
                 Ok(match (op, &rhs_type) {
                     (Op::Not, Type::Bool | numeric!()) => Type::Bool,
                     (Op::Negate, numeric!()) => rhs_type.clone(),
-                    _ => return Err("bang ding ow :(2".into())
+                    _ => return Err(unimplemented!("bang ding ow :(2"))
                 })
             }
             Expression::Infix { lhs, op, rhs } => {
@@ -185,22 +222,26 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
 
                     (numeric!(), Op::AsteriskAssign | Op::MinusAssign | Op::PlusAssign | Op::ModuloAssign | Op::SlashAssign, _) if &left_type == &right_type => left_type.clone(),
                     (_, Op::Assign, _) if &left_type == &right_type => left_type.clone(),
-                    _ => return Err("bang ding ow :(".into())
+                    _ => return Err(unimplemented!("bang ding ow :("))
                 })
             }
             Expression::Call { lhs, args } => {
                 let name = ident!(lhs);
                 let Some(Type::Function { args: expected_args, returned }) = self.lookup(&name) else {
-                    return Err(OpaqueError::cannot_call(self.file_id, lhs));
+                    unimplemented!("cannot call");
+                    // return Err(OpaqueError::cannot_call(self.file_id, lhs));
                 };
                 if args.len() != expected_args.len() {
-                    return Err(OpaqueError::wrong_argument_count(self.file_id, expr, expected_args.len(), args.len()));
+                    unimplemented!("wrong argument count");
+
+                    // return Err(OpaqueError::wrong_argument_count(self.file_id, expr, expected_args.len(), args.len()));
                 }
 
                 let arg_types = args.iter().map(|arg| self.mark_expression(arg)).collect::<Result<Vec<_>, _>>()?;
                 let wrong_arguments = arg_types.iter().enumerate().zip(expected_args.iter()).filter(|((_, arg), expected)| arg != expected).collect::<Vec<_>>();
                 if wrong_arguments.len() > 0 {
-                    return Err(OpaqueError::incompatible_argument_types(self.file_id, expr, &wrong_arguments));
+                    unimplemented!("wrong argument types");
+                    // return Err(OpaqueError::incompatible_argument_types(self.file_id, expr, &wrong_arguments));
                 }
 
                 Ok(*returned.clone())
@@ -209,7 +250,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         }
     }
 
-    fn register_functions(&mut self, block: &Vec<Stmt>) -> Result<(), OpaqueError> {
+    fn register_functions(&mut self, block: &Vec<Stmt>) -> Result<(), Vec<TypeError<'b>>> {
         for stmt in block {
             match &*stmt.inner {
                 Statement::Function { name, .. } | Statement::FunctionDeclaration { name, .. } =>
@@ -221,7 +262,7 @@ impl<'a, 'b> TypeEnv<'a, 'b> {
         Ok(())
     }
 
-    fn function_type(&self, stmt: &Stmt) -> Result<Type, OpaqueError> {
+    fn function_type(&self, stmt: &Stmt) -> Result<Type, Vec<TypeError<'b>>> {
         let (args, return_type) = match &*stmt.inner {
             Statement::Function { args, return_type, ..} | Statement::FunctionDeclaration { args, return_type, ..} => (args, return_type),
             _ => unreachable!()
@@ -264,7 +305,7 @@ mod tests {
         extract!(res, Statement::Block(program));
 
         let mut env = TypeEnv::new(0);
-        env.check_block(&program).unwrap();
+        env.check_block(&program, None).unwrap();
     }
 
     #[test]
@@ -283,6 +324,6 @@ mod tests {
         extract!(res, Statement::Block(program));
 
         let mut env = TypeEnv::new(0);
-        assert!(env.check_block(&program).is_err());
+        assert!(env.check_block(&program, None).is_err());
     }
 }
