@@ -4,6 +4,7 @@ mod types;
 mod macros;
 mod errors;
 mod compiler;
+mod lexer;
 
 use std::error::Error;
 use std::fs;
@@ -25,24 +26,26 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut files = SimpleFiles::new();
     let file_id = files.add("example.vt", &content);
 
-    let mut res = volt::FileParser::new().parse(&content).unwrap();
+    let mut lexer = lexer::Lexer::new(&content);
+    let tokens: Result<Vec<_>, _> = lexer.collect();
+    dbg!(&tokens);
 
-    let writer = StandardStream::stderr(ColorChoice::Always);
-    let config = term::Config::default();
-
-    extract!(res, Statement::Block(program));
-    let mut env = TypeEnv::new(file_id);
-    if let Err(error) = env.check_block(program, None) {
-        for err in error {
-            let err: OpaqueError = err.clone().into();
-            term::emit(&mut writer.lock(), &config, &files, &err.diagnostic)?;
-        }
-        exit(1);
-    }
-    let mut context = Context::create();
-    let mut compiler = CompilerContext::new(&mut context);
-    let compiled = compiler.compile_program(program)?;
-    compiled.print_to_stderr();
+    // let writer = StandardStream::stderr(ColorChoice::Always);
+    // let config = term::Config::default();
+    //
+    // extract!(res, Statement::Block(program));
+    // let mut env = TypeEnv::new(file_id);
+    // if let Err(error) = env.check_block(program, None) {
+    //     for err in error {
+    //         let err: OpaqueError = err.clone().into();
+    //         term::emit(&mut writer.lock(), &config, &files, &err.diagnostic)?;
+    //     }
+    //     exit(1);
+    // }
+    // let mut context = Context::create();
+    // let mut compiler = CompilerContext::new(&mut context);
+    // let compiled = compiler.compile_program(program)?;
+    // compiled.print_to_stderr();
 
     Ok(())
 }

@@ -172,7 +172,7 @@ impl <'ctx> CompilerContext<'ctx> {
             }
             Expression::Identifier(name) => {
                 let resolved = self.named_values.get(name).unwrap();
-                Ok(self.builder.build_load(self.context.i64_type(), *resolved, name)?.into())
+                Ok(self.builder.build_load(resolved.get_type(), *resolved, name)?.into())
             },
             Expression::Infix { lhs, op, rhs } => {
                 let l = self.expression(lhs)?;
@@ -190,6 +190,13 @@ impl <'ctx> CompilerContext<'ctx> {
                 let args = &args.iter().map(|arg| basic_value_to_metadata_value(self.expression(arg).unwrap())).collect::<Vec<_>>();
                 Ok(self.builder.build_call(function, args, "calltemp")?.try_as_basic_value().unwrap_left())
             }
+            Expression::Dereference(addr) => {
+                let value = self.expression(addr)?;
+                let typ = expr.resolved_type.borrow().clone().unwrap();
+                let value = self.builder.build_load(typ.basic_type(self.context), value.into_pointer_value(), "dereftmp")?;
+                Ok(value)
+            }
+            Expression::AddressOf(inner) => Ok(self.named_values.get(&ident!(inner)).unwrap().clone().into()),
             _ => unimplemented!("compilation of expression {:?} not implemented", expr)
         }
     }

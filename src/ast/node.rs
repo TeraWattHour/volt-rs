@@ -15,6 +15,22 @@ pub struct Span {
     end: usize,
 }
 
+impl From<usize> for Span {
+    fn from(start: usize) -> Self {
+        Self { start, end: start }
+    }
+}
+
+impl Span {
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+
+    pub fn range(&self) -> Range<usize> {
+        self.start..self.end
+    }
+}
+
 impl<T> Node<T> {
     pub fn new(inner: T, span: (usize, usize)) -> Self {
         Self {
@@ -24,6 +40,6 @@ impl<T> Node<T> {
         }
     }
     pub fn span(&self) -> Range<usize> {
-        self.span.start..self.span.end
+        self.span.range()
     }
 }

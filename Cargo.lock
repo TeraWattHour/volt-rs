@@ -611,6 +611,7 @@ dependencies = [
  "inkwell",
  "lalrpop",
  "lalrpop-util",
+ "lazy_static",
  "regex",
  "unindent",
 ]

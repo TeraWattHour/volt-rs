@@ -1,9 +1,7 @@
-fn dereferencing(a: &int) -> int {
-    return *a;
-}
-
-
 fn main() -> int {
-    let a = 10;
-    return dereferencing(&a);
+    let a = 9998999999999;
+    let b = &a;
+    *b = 30;
+
+    return a;
 }
