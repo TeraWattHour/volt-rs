@@ -51,6 +51,7 @@ pub enum Token<'a> {
     Else,
     True,
     False,
+    Return,
 
     // Reserved types
     Int,
@@ -63,8 +64,8 @@ pub enum Token<'a> {
 
 #[derive(Debug)]
 pub enum LexerError {
-    InvalidNumerical((String, Span)),
-    UnexpectedCharacter((String, Span))
+    InvalidNumeral((String, Span)),
+    UnexpectedAfterNumber((char, Span))
 }
 
 lazy_static! {
@@ -77,6 +78,7 @@ lazy_static! {
                 ("else", Token::Else),
                 ("true", Token::True),
                 ("false", Token::False),
+                ("return", Token::Return),
 
                 ("int", Token::Int),
                 ("i32", Token::I32),
@@ -86,6 +88,16 @@ lazy_static! {
                 ("bool", Token::Bool),
             ])
         };
+}
+
+macro_rules! chop_while {
+    ($self:expr, $pat:expr) => {{
+        let start = $self.position;
+        while $self.position < $self.source.len() && $self.source[$self.position..].starts_with($pat) {
+            $self.advance()
+        }
+        start
+    }};
 }
 
 macro_rules! pat {
@@ -147,6 +159,7 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
                 let identifier = &self.source[start..self.position];
+
                 if let Some(token) = KEYWORDS.get(identifier) {
                     return Some(Ok(token.clone()));
                 }
@@ -157,14 +170,14 @@ impl<'a> Lexer<'a> {
                 match self.peek_char() {
                     Some('.') => unimplemented!("floating point literals not implemented yet"),
                     Some('0'..='7') => unimplemented!("octal literals not supported yet"),
-                    Some(c) if !Self::huggable_by_numerics(c) => Some(Err(LexerError::UnexpectedCharacter(("expected an octal literal, floating point literal or valid adjacent character".into(), self.span())))),
-                    _ => Some(self.decimal_integer()),
+                    Some(c) if !Self::huggable(c) => Some(Err(LexerError::UnexpectedAfterNumber((c, self.span())))),
+                    _ => pat!(self, Token::Number(0))
                 }
             }
             '.' => {
                 match self.peek_char() {
                     Some('0'..='9') => unimplemented!("floating point literals not implemented yet"),
-                    _ => Some(Ok(Token::Dot))
+                    _ => pat!(self, Token::Dot)
                 }
             }
             _ => unimplemented!("lexing for character {} not implemented yet", c),
@@ -192,28 +205,25 @@ impl<'a> Lexer<'a> {
     }
 
     fn decimal_integer(&mut self) -> Result<Token<'a>, LexerError> {
-        let start = self.position;
-        while self.position < self.source.len()
-            && self.source[self.position..].starts_with(char::is_numeric)
-        {
-            self.advance();
-        }
+        let start = chop_while!(self, char::is_numeric);
         let number = &self.source[start..self.position];
+
+        match self.current_char() {
+            Some(c) if !Self::huggable(c) => return Err(LexerError::UnexpectedAfterNumber((c, self.span()))),
+            _ => {}
+        }
+
         number
             .parse::<i64>()
             .map(|n| Token::Number(n))
-            .map_err(|e| LexerError::InvalidNumerical((e.to_string(), Span::new(start, self.position))))
+            .map_err(|e| LexerError::InvalidNumeral((e.to_string(), Span::new(start, self.position))))
     }
 
     fn skip_whitespace(&mut self) {
-        while self.position < self.source.len()
-            && self.source[self.position..].starts_with(char::is_whitespace)
-        {
-            self.position += 1;
-        }
+        _ = chop_while!(self, char::is_whitespace);
     }
 
-    fn huggable_by_numerics(ch: char) -> bool {
+    fn huggable(ch: char) -> bool {
         !ch.is_ascii_alphanumeric() && ch != '_'
     }
 
@@ -235,15 +245,43 @@ impl<'a> Iterator for Lexer<'a> {
 
 #[cfg(test)]
 mod lexer_test {
-    #[test]
-    fn simple_arithmetic() {
-        use super::Token::*;
-        let source = "1 + 2 - 3* 4/5+0*999";
+    use super::Token::{self, *};
+
+    fn simple_lexer_test(source: &'static str, expected: &[Token]) {
         let lexer = super::Lexer::new(source);
         let tokens = lexer.collect::<Result<Vec<_>, _>>().unwrap();
-        let expected = &[Number(1), Plus, Number(2), Minus, Number(3), Star, Number(4), Slash, Number(5), Plus, Number(0), Star, Number(999)];
+        assert_eq!(tokens.len(), expected.len());
         for (actual, expected) in tokens.iter().zip(expected.iter()) {
             assert_eq!(actual.0, *expected);
         }
+    }
+
+    #[test]
+    fn simple_arithmetic() {
+        let source = "1 + 2 - 3* 4/5+0*999";
+        let expected = &[Number(1), Plus, Number(2), Minus, Number(3), Star, Number(4), Slash, Number(5), Plus, Number(0), Star, Number(999)];
+        simple_lexer_test(source, expected);
+    }
+
+    #[test]
+    fn function_declarations() {
+        let source = "fn main() -> i32 { let a = 10; return *&a + 10 + 0; }";
+        let expected = &[Fn, Identifier("main"), Lparen, Rparen, Arrow, I32, Lbrace, Let, Identifier("a"), Assign, Number(10), Semicolon, Return, Star, Ampersand, Identifier("a"), Plus, Number(10), Plus, Number(0), Semicolon, Rbrace];
+        simple_lexer_test(source, expected);
+    }
+
+    #[test]
+    fn simple_property_access() {
+        let source = "x.a.y*2+0";
+        let expected = &[Identifier("x"), Dot, Identifier("a"), Dot, Identifier("y"), Star, Number(2), Plus, Number(0)];
+        simple_lexer_test(source, expected);
+    }
+
+    #[test]
+    fn disallow_dangling_chars() {
+        let case = "123return";
+        let lexer = super::Lexer::new(case);
+        let tokens = lexer.collect::<Result<Vec<_>, _>>();
+        assert!(tokens.is_err());
     }
 }
