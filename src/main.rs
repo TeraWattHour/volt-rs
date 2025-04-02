@@ -13,13 +13,10 @@ use codespan_reporting::files::SimpleFiles;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 use inkwell::context::Context;
-use lalrpop_util::lalrpop_mod;
 use crate::ast::statements::Statement;
 use crate::compiler::compiler::CompilerContext;
 use crate::errors::OpaqueError;
 use crate::types::checker::TypeEnv;
-
-lalrpop_mod!(pub volt);
 
 fn main() -> Result<(), Box<dyn Error>> {
     let content = fs::read_to_string("example.vt")?;

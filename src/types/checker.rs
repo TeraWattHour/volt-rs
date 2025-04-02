@@ -285,52 +285,51 @@ impl<'a, 'b> TypeEnv<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use unindent::unindent;
-    use super::*;
-    use crate::ast::expressions::Expression;
-    use crate::ast::statements::Statement;
-    use crate::volt;
+// #[cfg(test)]
+// mod tests {
+//     use unindent::unindent;
+//     use super::*;
+//     use crate::ast::expressions::Expression;
+//     use crate::ast::statements::Statement;
 
-    #[test]
-    fn test_convergence() {
-        let content = unindent(r#"
-            fn main() -> int {
-                if (true) {
-                    return 10;
-                } else if (false) {
-                    return 20;
-                } else {
-                    return 20;
-                }
-                return 10;
-            }
-        "#);
+//     #[test]
+//     fn test_convergence() {
+//         let content = unindent(r#"
+//             fn main() -> int {
+//                 if (true) {
+//                     return 10;
+//                 } else if (false) {
+//                     return 20;
+//                 } else {
+//                     return 20;
+//                 }
+//                 return 10;
+//             }
+//         "#);
 
-        let res = volt::FileParser::new().parse(&content).unwrap();
-        extract!(res, Statement::Block(program));
+//         let res = volt::FileParser::new().parse(&content).unwrap();
+//         extract!(res, Statement::Block(program));
 
-        let mut env = TypeEnv::new(0);
-        env.check_block(&program, None).unwrap();
-    }
+//         let mut env = TypeEnv::new(0);
+//         env.check_block(&program, None).unwrap();
+//     }
 
-    #[test]
-    fn test_divergence() {
-        let content = unindent(r#"
-            fn main() -> int {
-                if (true) {
-                    return 10;
-                } else if (false) {
-                    return 20;
-                }
-            }
-        "#);
+//     #[test]
+//     fn test_divergence() {
+//         let content = unindent(r#"
+//             fn main() -> int {
+//                 if (true) {
+//                     return 10;
+//                 } else if (false) {
+//                     return 20;
+//                 }
+//             }
+//         "#);
 
-        let res = volt::FileParser::new().parse(&content).unwrap();
-        extract!(res, Statement::Block(program));
+//         let res = volt::FileParser::new().parse(&content).unwrap();
+//         extract!(res, Statement::Block(program));
 
-        let mut env = TypeEnv::new(0);
-        assert!(env.check_block(&program, None).is_err());
-    }
-}
+//         let mut env = TypeEnv::new(0);
+//         assert!(env.check_block(&program, None).is_err());
+//     }
+// }

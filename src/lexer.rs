@@ -1,6 +1,6 @@
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::collections::HashMap;
+use std::{collections::HashMap, num::ParseIntError};
 
 use crate::ast::node::Span;
 
@@ -70,31 +70,37 @@ pub enum Token<'a> {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum LexerError {
     InvalidNumeral((String, Span)),
     UnexpectedAfterNumber((char, Span))
 }
 
 lazy_static! {
-    static ref KEYWORDS: HashMap<&'static str, Token<'static>> =
-        {
-            HashMap::from([
-                ("fn", Token::Fn),
-                ("let", Token::Let),
-                ("if", Token::If),
-                ("else", Token::Else),
-                ("true", Token::True),
-                ("false", Token::False),
-                ("return", Token::Return),
+    static ref KEYWORDS: HashMap<&'static str, Token<'static>> = {
+        HashMap::from([
+            ("fn", Token::Fn),
+            ("let", Token::Let),
+            ("if", Token::If),
+            ("else", Token::Else),
+            ("true", Token::True),
+            ("false", Token::False),
+            ("return", Token::Return),
 
-                ("int", Token::TypInt),
-                ("i32", Token::TypI32),
-                ("i64", Token::TypI64),
-                ("f32", Token::TypF32),
-                ("f64", Token::TypF64),
-                ("bool", Token::TypBool),
-            ])
-        };
+            ("int", Token::TypInt),
+            ("i32", Token::TypI32),
+            ("i64", Token::TypI64),
+            ("f32", Token::TypF32),
+            ("f64", Token::TypF64),
+            ("bool", Token::TypBool),
+        ])
+    };
+}
+
+lazy_static! {
+    static ref DECIMAL_INTEGER_RE: Regex = {
+        Regex::new("^(0|[1-9]([_']?[0-9])*)([ui](64|32)?)?").expect("decimal integer regex must compile")
+    };
 }
 
 macro_rules! chop_while {
@@ -208,8 +214,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn decimal_integer(&mut self) -> Result<Token<'a>, LexerError> {
-        let re = Regex::new("^(0|[1-9]([_']?[0-9])*)([ui](64|32)?)?").unwrap();
-        let Some(num) = re.find(&self.source[self.position..]) else {
+        let Some(num) = DECIMAL_INTEGER_RE.find(&self.source[self.position..]) else {
             unreachable!();
         };
 
@@ -228,23 +233,29 @@ impl<'a> Lexer<'a> {
             Platform,
         }
 
+        let into_numeral_error = |e: ParseIntError| {
+            LexerError::InvalidNumeral((e.to_string(), self.span()))
+        };
+
         let signed = num.find('i').is_some();
         let (num, w) = match num.split_once(&['u', 'i']) {
             Some((n, "32")) => (n, Width::ThirtyTwo),
             Some((n, "64")) => (n, Width::SixtyFour),
             Some((n, _)) => (n, Width::Platform),
             None => {
-                return Ok(Token::Int(num.parse::<isize>().unwrap()))
+                return Ok(Token::Int(num.parse::<isize>().map_err(into_numeral_error)?))
             }
         };
 
         Ok(match (signed, w) {
-            (true, Width::SixtyFour) => Token::I64(num.parse::<i64>().unwrap()),
-            (false, Width::SixtyFour) => Token::U64(num.parse::<u64>().unwrap()),
-            (true, Width::ThirtyTwo) => Token::I32(num.parse::<i32>().unwrap()),
-            (false, Width::ThirtyTwo) => Token::U32(num.parse::<u32>().unwrap()),
-            (true, Width::Platform) => Token::Int(num.parse::<isize>().unwrap()),
-            (false, Width::Platform) => Token::Unsigned(num.parse::<usize>().unwrap()),
+            (true, Width::SixtyFour) => Token::I64(num.parse::<i64>().map_err(into_numeral_error)?),
+            (false, Width::SixtyFour) => Token::U64(num.parse::<u64>().map_err(into_numeral_error)?),
+
+            (true, Width::ThirtyTwo) => Token::I32(num.parse::<i32>().map_err(into_numeral_error)?),
+            (false, Width::ThirtyTwo) => Token::U32(num.parse::<u32>().map_err(into_numeral_error)?),
+
+            (true, Width::Platform) => Token::Int(num.parse::<isize>().map_err(into_numeral_error)?),
+            (false, Width::Platform) => Token::Unsigned(num.parse::<usize>().map_err(into_numeral_error)?),
         })
     }
 
@@ -302,8 +313,8 @@ mod lexer_test {
 
     #[test]
     fn simple_property_access() {
-        let source = "x.a.y*2+0";
-        let expected = &[Identifier("x"), Dot, Identifier("a"), Dot, Identifier("y"), Star, Int(2), Plus, Int(0)];
+        let source = "x.a.y*2u+0";
+        let expected = &[Identifier("x"), Dot, Identifier("a"), Dot, Identifier("y"), Star, Unsigned(2), Plus, Int(0)];
         simple_lexer_test(source, expected);
     }
 
