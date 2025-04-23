@@ -75,9 +75,9 @@ impl <'ctx> CompilerContext<'ctx> {
                 let function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
 
                 // FIXME: host allocations to the top of each function
-                let alloca = self.create_entry_block_alloca(function, &ident!(name), typ.basic_type(self.context))?;
+                let alloca = self.create_entry_block_alloca(function, &ident!(name.1), typ.basic_type(self.context))?;
                 self.builder.build_store(alloca, value)?;
-                self.named_values.insert(ident!(name), alloca);
+                self.named_values.insert(ident!(name.1), alloca);
             }
             Statement::Block(block) => { self.compile_block(stmt)?; },
             Statement::Expression(expr) => { self.expression(expr)?; },

@@ -87,7 +87,7 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
     fn check_statement(&mut self, stmt: &'b Stmt<'c>, expected_return: Option<(&Type, &'b Stmt<'c>)>) -> Result<(), Vec<TypeError<'b, 'c>>> {
         match &stmt.1 {
             Statement::Let { name, value } => {
-                self.insert_identifier(name, self.mark_expression(value)?);
+                self.insert_identifier(&name.1, self.mark_expression(value)?);
                 Ok(())
             }
             Statement::Expression(expr) => {

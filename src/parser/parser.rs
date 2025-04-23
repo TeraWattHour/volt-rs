@@ -1,21 +1,11 @@
-use std::{error::Error, iter::Peekable, mem};
-use std::collections::VecDeque;
-use crate::{ast::statements::Statement, extract, lexer::{Lexer, LexerError, Token}, variant};
-use crate::ast::expressions::{Expr, Expression};
-use crate::ast::node::Span;
+use std::{error::Error, iter::Peekable};
+use crate::{ast::statements::Statement, lexer::{Lexer, Token}};
+use crate::ast::expressions::{Expr, Expression, Op};
 use crate::ast::statements::Stmt;
 use crate::types::typ::Type;
 
 pub struct Parser<'a, 'b> {
     lexer: Peekable<&'b mut Lexer<'a>>
-}
-
-
-
-macro_rules! kind {
-    ($kind:pat) => {
-        Ok((_, $kind, _))
-    };
 }
 
 macro_rules! expect {
@@ -36,15 +26,33 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     fn top_level_statement(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
-        match self.lexer.peek().expect("lexer must always have tokens") {
-            kind!(Token::Fn) => self.function(),
+        match self.lexer.peek().unwrap() {
+            Ok((_, Token::Fn, _)) => self.function(),
             Ok((_, unexpected, _)) => todo!("encountered unknown token {:?}", unexpected),
             Err(e) => unimplemented!("parsing errors {}", e)
         }
     }
 
+    fn statement(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
+        match self.lexer.peek().unwrap() {
+            Ok((_, Token::Let, _)) => self.let_(),
+            Ok((_, unexpected, _)) => todo!("encountered unknown token {:?}", unexpected),
+            Err(e) => unimplemented!("parsing errors {}", e)
+        }
+    }
+
+    fn let_(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
+        let (start, _, _) = expect!(self, Token::Let);
+        let name = expect!(self, Token::Identifier(..));
+        expect!(self, Token::Assign);
+        let value = self.expression()?;
+        let (_, _, end) = expect!(self, Token::Semicolon);
+
+        Ok((start, Statement::Let { name, value }, end))
+    }
+
     fn function(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
-        let (start, token, _) = expect!(self, Token::Fn);
+        let (start, _, _) = expect!(self, Token::Fn);
         let name = expect!(self, Token::Identifier(..));
         expect!(self, Token::Lparen);
         expect!(self, Token::Rparen);
@@ -58,6 +66,73 @@ impl<'a, 'b> Parser<'a, 'b> {
         Ok((start, Statement::Function { name, args: Vec::new(), return_type, body: Box::new(body) }, end))
     }
 
+    fn expression(&mut self) -> Result<Expr, Box<dyn Error>> {
+        self._infix_expression(0)
+    }
+
+    fn _infix_expression(&mut self, precedence: u8) -> Result<Expr, Box<dyn Error>> {
+        let mut left = match self.lexer.peek() {
+            Some(Ok((_, tok, _))) if is_prefix(tok) => {
+                let (start, token, _) = self.lexer.next().unwrap()?;
+                let precedence = prefix_binding_power(&token);
+                let rhs = self._infix_expression(precedence)?;
+                let end = rhs.2;
+
+                let expr = match token {
+                    Token::Star => Expression::Dereference(Box::new(rhs)),
+                    Token::Minus => Expression::Prefix {
+                        op: Op::Minus,
+                        rhs: Box::new(rhs),
+                    },
+                    _ => return Err(format!("unsupported prefix token {:?}", token).into()),
+                };
+
+                (start, expr, end)
+            }
+            _ => self._primary_expression()?,
+        };
+
+        while let Some(Ok((_, token, _))) = self.lexer.peek() {
+            let token_precedence = get_precedence(token);
+            if token_precedence <= precedence {
+                break;
+            }
+
+            let op = self.lexer.next().unwrap()?.1;
+            let right = self._infix_expression(token_precedence)?;
+            let end = right.2;
+            left = (
+                left.0,
+                Expression::Infix {
+                    lhs: Box::new(left),
+                    op: token_to_op(&op)?,
+                    rhs: Box::new(right),
+                },
+                end,
+            );
+        }
+
+        Ok(left)
+    }
+
+    fn _primary_expression(&mut self) -> Result<Expr, Box<dyn Error>> {
+        match self.lexer.next() {
+            Some(Ok((start, Token::Int(value), end))) => {
+                Ok((start, Expression::Int(value), end))
+            }
+            Some(Ok((start, Token::Identifier(name), end))) => {
+                Ok((start, Expression::Identifier(name.to_string()), end))
+            }
+            Some(Ok((_, Token::Lparen, _))) => {
+                let expr = self.expression()?;
+                expect!(self, Token::Rparen);
+                Ok(expr)
+            }
+            Some(Ok((_, unexpected, _))) => Err(format!("unexpected token {:?}", unexpected).into()),
+            _ => todo!()
+        }
+    }
+
     fn type_expression(&mut self) -> Result<Expr, Box<dyn Error>> {
         let (start, t, end) = expect!(self, Token::TypInt);
         Ok((start, Expression::Type(Type::Int), end))
@@ -65,7 +140,7 @@ impl<'a, 'b> Parser<'a, 'b> {
 
     fn block(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
         let (start, _, _) = expect!(self, Token::Lbrace);
-        let body = self.series_of(&Parser::top_level_statement, &Token::Rbrace)?;
+        let body = self.series_of(&Parser::statement, &Token::Rbrace)?;
         let (_, _, end) = expect!(self, Token::Rbrace);
 
         Ok((start, Statement::Block(body), end))
@@ -95,5 +170,34 @@ impl<'a, 'b> Iterator for Parser<'a, 'b> {
         }
 
         Some(self.top_level_statement())
+    }
+}
+
+fn get_precedence(token: &Token) -> u8 {
+    match token {
+        Token::Plus | Token::Minus => 1,
+        Token::Star | Token::Slash => 2,
+        _ => 0,
+    }
+}
+
+fn token_to_op(token: &Token) -> Result<Op, Box<dyn Error>> {
+    match token {
+        Token::Plus => Ok(Op::Plus),
+        Token::Minus => Ok(Op::Minus),
+        Token::Star => Ok(Op::Asterisk),
+        Token::Slash => Ok(Op::Slash),
+        _ => Err(format!("unexpected operator token {:?}", token).into()),
+    }
+}
+
+fn is_prefix(token: &Token) -> bool {
+    matches!(token, Token::Star | Token::Minus)
+}
+
+fn prefix_binding_power(token: &Token) -> u8 {
+    match token {
+        Token::Star | Token::Minus => 10,
+        _ => 0,
     }
 }
