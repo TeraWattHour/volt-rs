@@ -5,6 +5,7 @@ use codespan_reporting::diagnostic::{Diagnostic, Label};
 use crate::ast::expressions::Expr;
 use crate::ast::statements::{Statement, Stmt};
 use crate::{extract, typ};
+use crate::lexer::span;
 use crate::types::checker::TypeError;
 use crate::types::typ::Type;
 
@@ -31,11 +32,11 @@ impl OpaqueError {
             diagnostic: Diagnostic::error()
                 .with_message(&message)
                 .with_labels([
-                    vec![Label::primary(file_id, expected.span()).with_message(format!("expected function to return a value of type `{}`", typ!(expected)))],
+                    vec![Label::primary(file_id, expected.0..expected.2).with_message(format!("expected function to return a value of type `{}`", typ!(expected)))],
                     got.iter().map(|(got, stmt)| {
-                        let location = match &*stmt.inner {
-                            Statement::Return(Some(expr)) => expr.span(),
-                            _ => stmt.span()
+                        let location = match &stmt.1 {
+                            Statement::Return(Some(expr)) => expr.0..expr.2,
+                            _ => stmt.0..stmt.2
                         };
                         Label::secondary(file_id, location).with_message(format!("got `{}`", got))
                     }).collect::<Vec<_>>()
@@ -50,7 +51,7 @@ impl OpaqueError {
             diagnostic: Diagnostic::error()
                 .with_message(&message)
                 .with_labels(vec![
-                    Label::primary(file_id, called.span()).with_message("value is not a function"),
+                    Label::primary(file_id, span(called)).with_message("value is not a function"),
                 ]),
             message,
         }
@@ -59,7 +60,7 @@ impl OpaqueError {
     pub fn wrong_argument_count(file_id: usize, called: &Expr, expected: usize, got: usize) -> Self {
         let message = "wrong number of arguments".to_string();
         extract!(called, Expression::Call { args, .. });
-        let highlight = merge_ranges(args.iter().map(|arg| arg.span()).collect()).unwrap_or(called.span());
+        let highlight = merge_ranges(args.iter().map(|arg| span(arg)).collect()).unwrap_or(span(called));
         OpaqueError {
             diagnostic: Diagnostic::error()
                 .with_message(&message)
@@ -80,7 +81,7 @@ impl OpaqueError {
                 .with_message(&message)
                 .with_labels(
                     arguments.iter().map(|((i, got), expected)| {
-                        let location = args.get(*i).map(|arg| arg.span()).unwrap_or(called.span());
+                        let location = args.get(*i).map(|arg| span(arg)).unwrap_or(span(called));
                         Label::primary(file_id, location)
                             .with_message(format!("argument {}: expected `{}`, got `{}`", i + 1, expected, got))
                     })
@@ -130,17 +131,17 @@ impl From<&str> for OpaqueError {
     }
 }
 
-impl<'a> From<TypeError<'a>> for OpaqueError {
-    fn from(value: TypeError<'a>) -> Self {
+impl<'a, 'b> From<TypeError<'a, 'b>> for OpaqueError {
+    fn from(value: TypeError<'a, 'b>) -> Self {
         match value {
             TypeError::WrongReturnType { returned_by, returned_type, expected_by, expected_type } => {
                 let message = "incompatible return types".to_string();
                 let mut labels = vec![
-                    Label::primary(0, returned_by.span()).with_message(format!("got `{}`", returned_type)),
+                    Label::primary(0, span(returned_by)).with_message(format!("got `{}`", returned_type)),
                 ];
 
                 if let Some(expected_by) = expected_by {
-                    labels.push(Label::secondary(0, expected_by.span()).with_message(format!("expected function to return a value of type `{}`", expected_type)));
+                    labels.push(Label::secondary(0, span(expected_by)).with_message(format!("expected function to return a value of type `{}`", expected_type)));
                 }
 
                 OpaqueError {

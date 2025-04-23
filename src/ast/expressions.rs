@@ -1,15 +1,16 @@
 use crate::ast::node::Node;
+use crate::lexer::Spanned;
 use crate::types::typ::Type;
 
-pub type Expr = Node<Expression>;
+pub type Expr = Spanned<Expression>;
 
 #[derive(Debug)]
 pub enum Expression {
-    Prefix { op: Op, rhs: Expr },
-    Infix { lhs: Expr, op: Op, rhs: Expr },
+    Prefix { op: Op, rhs: Box<Expr> },
+    Infix { lhs: Box<Expr>, op: Op, rhs: Box<Expr> },
 
-    AddressOf(Expr),
-    Dereference(Expr),
+    AddressOf(Box<Expr>),
+    Dereference(Box<Expr>),
 
     Boolean(bool),
     Int(isize),
@@ -22,9 +23,9 @@ pub enum Expression {
 
     String(String),
 
-    IndexAccess { lhs: Expr, rhs: Expr },
-    FieldAccess { lhs: Expr, rhs: Expr, dereferenced: bool },
-    Call { lhs: Expr, args: Vec<Expr> },
+    IndexAccess { lhs: Box<Expr>, rhs: Box<Expr> },
+    FieldAccess { lhs: Box<Expr>, rhs: Box<Expr>, dereferenced: bool },
+    Call { lhs: Box<Expr>, args: Vec<Expr> },
 }
 
 #[derive(Debug)]
@@ -61,20 +62,20 @@ pub enum Op {
     LogicalAnd,
 }
 
-#[macro_export]
-macro_rules! ident {
-    ($i:expr) => {
-        match &*$i.inner {
-            Expression::Identifier(name) => name.clone(),
-            _ => unreachable!(),
-        }
-    };
-}
+// #[macro_export]
+// macro_rules! ident {
+//     ($i:expr) => {
+//         match &*$i.inner {
+//             Expression::Identifier(name) => name.clone(),
+//             _ => unreachable!(),
+//         }
+//     };
+// }
 
 #[macro_export]
 macro_rules! typ {
     ($i:expr) => {
-        match &*$i.inner {
+        match &$i.1 {
             Expression::Type(typ) => typ.clone(),
             _ => unreachable!(),
         }

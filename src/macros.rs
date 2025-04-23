@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! extract {
     ($e:expr, $p:pat) => {
-        let $p = &*$e.inner else {
+        let $p = &$e.1 else {
             unreachable!()
         };
     };

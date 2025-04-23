@@ -1,7 +1,1 @@
-fn main() -> int {
-    let a = 9998999999999;
-    let b = &a;
-    *b = 30;
-
-    return a;
-}
+fn main() -> int {}

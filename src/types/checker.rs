@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::error::Error;
 use crate::ast::statements::{Statement, Stmt};
 use crate::ast::expressions::{Expression, Expr, Op};
-use crate::{extract, ident};
+use crate::{extract, ident, variant};
+use crate::lexer::Token;
 use crate::types::typ::Type;
 
 macro_rules! numeric {
@@ -12,11 +12,11 @@ macro_rules! numeric {
 }
 
 #[derive(Debug, Clone)]
-pub enum TypeError<'a> {
+pub enum TypeError<'a, 'b> {
     WrongReturnType {
-        returned_by: &'a Stmt,
+        returned_by: &'a Stmt<'b>,
         returned_type: Type,
-        expected_by: Option<&'a Stmt>,
+        expected_by: Option<&'a Stmt<'b>>,
         expected_type: Type,
     }
 }
@@ -29,7 +29,7 @@ pub struct TypeEnv<'a> {
     parent: Option<&'a TypeEnv<'a>>,
 }
 
-impl<'a, 'b> TypeEnv<'a> {
+impl<'a, 'b, 'c> TypeEnv<'a> {
     pub fn new(file_id: usize) -> Self {
         TypeEnv {
             file_id,
@@ -50,6 +50,13 @@ impl<'a, 'b> TypeEnv<'a> {
         self.variables.insert(name, ty);
     }
 
+    pub fn insert_identifier(&mut self, ident: &Token, ty: Type) {
+        self.variables.insert(match ident {
+            Token::Identifier(ident) => ident.to_string(),
+            _ => unreachable!("expected identifier")
+        }, ty);
+    }
+
     pub fn lookup(&self, name: &str) -> Option<Type> {
         self.variables.get(name)
             .cloned()
@@ -58,7 +65,7 @@ impl<'a, 'b> TypeEnv<'a> {
             })
     }
 
-    pub fn check_block(&mut self, block: &'b Vec<Stmt>, expected_return: Option<(&Type, &'b Stmt)>) -> Result<(), Vec<TypeError<'b>>> {
+    pub fn check_block(&mut self, block: &'b Vec<Stmt<'c>>, expected_return: Option<(&Type, &'b Stmt<'c>)>) -> Result<(), Vec<TypeError<'b, 'c>>> {
         if self.parent.is_none() {
             self.register_functions(block)?;
         }
@@ -77,10 +84,10 @@ impl<'a, 'b> TypeEnv<'a> {
         Ok(())
     }
 
-    fn check_statement(&mut self, stmt: &'b Stmt, expected_return: Option<(&Type, &'b Stmt)>) -> Result<(), Vec<TypeError<'b>>> {
-        match &*stmt.inner {
+    fn check_statement(&mut self, stmt: &'b Stmt<'c>, expected_return: Option<(&Type, &'b Stmt<'c>)>) -> Result<(), Vec<TypeError<'b, 'c>>> {
+        match &stmt.1 {
             Statement::Let { name, value } => {
-                self.insert(ident!(name), self.mark_expression(value)?);
+                self.insert_identifier(name, self.mark_expression(value)?);
                 Ok(())
             }
             Statement::Expression(expr) => {
@@ -95,7 +102,7 @@ impl<'a, 'b> TypeEnv<'a> {
                 let mut function_env = self.nested();
                 for (name, typ) in args {
                     extract!(typ, Expression::Type(typ));
-                    function_env.insert(ident!(name), typ.clone());
+                    function_env.insert_identifier(name, typ.clone());
                 }
 
                 extract!(return_type, Expression::Type(function_must_return));
@@ -123,7 +130,7 @@ impl<'a, 'b> TypeEnv<'a> {
                 }
 
                 if let Some(ref otherwise) = otherwise {
-                    if let Err(ref mut err) = match &*otherwise.inner {
+                    if let Err(ref mut err) = match &otherwise.1 {
                         Statement::If { .. } => self.check_statement(otherwise, expected_return),
                         Statement::Block(block) => self.check_block(block, expected_return),
                         _ => unreachable!()
@@ -172,7 +179,7 @@ impl<'a, 'b> TypeEnv<'a> {
     }
 
     fn does_statement_always_return(stmt: &'b Stmt) -> bool {
-        match &*stmt.inner {
+        match &stmt.1 {
             Statement::Return(_) => true,
             Statement::Block(_) => Self::does_block_always_return(stmt),
             Statement::If { body, otherwise, .. } => {
@@ -188,14 +195,14 @@ impl<'a, 'b> TypeEnv<'a> {
         }
     }
 
-    fn mark_expression(&self, expr: &Expr) -> Result<Type, Vec<TypeError<'b>>> {
+    fn mark_expression(&self, expr: &Expr) -> Result<Type, Vec<TypeError<'b, 'c>>> {
         let typ = self.check_expression(expr)?;
-        *expr.resolved_type.borrow_mut() = Some(typ.clone());
+        // *expr.1.resolved_type.borrow_mut() = Some(typ.clone());
         Ok(typ)
     }
 
-    fn check_expression(&self, expr: &Expr) -> Result<Type, Vec<TypeError<'b>>> {
-        match &*expr.inner {
+    fn check_expression(&self, expr: &Expr) -> Result<Type, Vec<TypeError<'b, 'c>>> {
+        match &expr.1 {
             Expression::Boolean(_) => Ok(Type::Bool),
             Expression::Int(_) => Ok(Type::Int),
             Expression::Int32(_) => Ok(Type::Int32),
@@ -226,7 +233,10 @@ impl<'a, 'b> TypeEnv<'a> {
                 })
             }
             Expression::Call { lhs, args } => {
-                let name = ident!(lhs);
+                let name = match &lhs.1 {
+                    Expression::Identifier(ident) => ident.clone(),
+                    _ => todo!()
+                };
                 let Some(Type::Function { args: expected_args, returned }) = self.lookup(&name) else {
                     unimplemented!("cannot call");
                     // return Err(OpaqueError::cannot_call(self.file_id, lhs));
@@ -257,11 +267,10 @@ impl<'a, 'b> TypeEnv<'a> {
         }
     }
 
-    fn register_functions(&mut self, block: &Vec<Stmt>) -> Result<(), Vec<TypeError<'b>>> {
+    fn register_functions(&mut self, block: &Vec<Stmt>) -> Result<(), Vec<TypeError<'b, 'c>>> {
         for stmt in block {
-            match &*stmt.inner {
-                Statement::Function { name, .. } | Statement::FunctionDeclaration { name, .. } =>
-                    self.insert(ident!(name), self.function_type(stmt)?),
+            match &stmt.1 {
+                Statement::Function { name, .. } => self.insert_identifier(&name.1, self.function_type(stmt)?),
                 _ => ()
             }
         }
@@ -269,8 +278,8 @@ impl<'a, 'b> TypeEnv<'a> {
         Ok(())
     }
 
-    fn function_type(&self, stmt: &Stmt) -> Result<Type, Vec<TypeError<'b>>> {
-        let (args, return_type) = match &*stmt.inner {
+    fn function_type(&self, stmt: &Stmt) -> Result<Type, Vec<TypeError<'b, 'c>>> {
+        let (args, return_type) = match &stmt.1 {
             Statement::Function { args, return_type, ..} | Statement::FunctionDeclaration { args, return_type, ..} => (args, return_type),
             _ => unreachable!()
         };

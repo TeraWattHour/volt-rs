@@ -24,8 +24,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let file_id = files.add("example.vt", &content);
 
     let mut lexer = lexer::Lexer::new(&content);
-    let tokens: Result<Vec<_>, _> = lexer.collect();
-    dbg!(&tokens);
+    let mut parser = parser::Parser::new(&mut lexer);
+    let program = parser.collect::<Result<Vec<_>, _>>()?;
+    dbg!(program);
 
     // let writer = StandardStream::stderr(ColorChoice::Always);
     // let config = term::Config::default();

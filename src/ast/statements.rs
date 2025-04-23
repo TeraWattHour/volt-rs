@@ -1,16 +1,16 @@
 use crate::ast::expressions::{Expr, Op};
-use crate::ast::node::Node;
+use crate::lexer::{Spanned, Token};
 
-pub type Stmt = Node<Statement>;
+pub type Stmt<'a> = Spanned<Statement<'a>>;
 
 #[derive(Debug)]
-pub enum Statement {
-    If { condition: Expr, body: Stmt, otherwise: Option<Stmt> },
-    Let { name: Expr, value: Expr },
+pub enum Statement<'a> {
+    If { condition: Expr, body: Box<Stmt<'a>>, otherwise: Option<Box<Stmt<'a>>> },
+    Let { name: Token<'a>, value: Expr },
     Expression(Expr),
-    Block(Vec<Stmt>),
-    Function { name: Expr, args: Vec<(Expr, Expr)>, return_type: Expr, body: Stmt },
-    FunctionDeclaration { name: Expr, args: Vec<(Expr, Expr)>, return_type: Expr },
+    Block(Vec<Stmt<'a>>),
+    Function { name: Spanned<Token<'a>>, args: Vec<(Token<'a>, Expr)>, return_type: Expr, body: Box<Stmt<'a>> },
+    FunctionDeclaration { name: Spanned<Token<'a>>, args: Vec<(Token<'a>, Expr)>, return_type: Expr },
     Return(Option<Expr>),
     Assignment { lhs: Expr, op: Op, rhs: Expr },
 }

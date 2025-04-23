@@ -10,24 +10,21 @@ pub struct Node<T> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Span {
-    start: usize,
-    end: usize,
-}
+pub struct Span(pub usize, pub usize);
 
 impl From<usize> for Span {
     fn from(start: usize) -> Self {
-        Self { start, end: start }
+        Self (start, start)
     }
 }
 
 impl Span {
     pub fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
+        Self(start, end)
     }
 
     pub fn range(&self) -> Range<usize> {
-        self.start..self.end
+        self.0..self.1
     }
 }
 
@@ -35,7 +32,7 @@ impl<T> Node<T> {
     pub fn new(inner: T, span: (usize, usize)) -> Self {
         Self {
             inner: Box::new(inner),
-            span: Span { start: span.0, end: span.1 },
+            span: Span(span.0, span.1),
             resolved_type: RefCell::new(None)
         }
     }
