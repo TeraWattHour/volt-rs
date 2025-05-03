@@ -2,7 +2,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use std::{collections::HashMap, error::Error, fmt::Display, num::ParseIntError};
 use std::ops::Range;
-use crate::ast::node::Span;
 
 pub type Spanned<T> = (usize, T, usize);
 
@@ -43,6 +42,8 @@ pub enum Token<'a> {
     Equals,
 
     Semicolon,
+    Colon,
+    Comma,
 
     Lbrace,
     Rbrace,
@@ -57,6 +58,7 @@ pub enum Token<'a> {
 
 
     // Keywords
+    Declare,
     Fn,
     Let,
     If,
@@ -72,6 +74,7 @@ pub enum Token<'a> {
     TypF32,
     TypF64,
     TypBool,
+    TypNothing,
 }
 
 #[macro_export]
@@ -87,8 +90,8 @@ macro_rules! ident {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum LexerError {
-    InvalidNumeral((String, Span)),
-    UnexpectedAfterNumber((char, Span))
+    InvalidNumeral((String, (usize, usize))),
+    UnexpectedAfterNumber((char, (usize, usize)))
 }
 
 impl Display for LexerError {
@@ -112,6 +115,7 @@ impl Error for LexerError {
 lazy_static! {
     static ref KEYWORDS: HashMap<&'static str, Token<'static>> = {
         HashMap::from([
+            ("declare", Token::Declare),
             ("fn", Token::Fn),
             ("let", Token::Let),
             ("if", Token::If),
@@ -126,6 +130,7 @@ lazy_static! {
             ("f32", Token::TypF32),
             ("f64", Token::TypF64),
             ("bool", Token::TypBool),
+            ("Nothing", Token::TypNothing)
         ])
     };
 }
@@ -195,10 +200,12 @@ impl<'a> Lexer<'a> {
             '[' => pat!(self, Token::Lbracket),
             ']' => pat!(self, Token::Rbracket),
             ';' => pat!(self, Token::Semicolon),
+            ',' => pat!(self, Token::Comma),
             '&' => {
                 pat!(self, '&', Token::LogicalAnd);
                 pat!(self, Token::Ampersand)
             }
+            ':' => pat!(self, Token::Colon),
             '*' => pat!(self, Token::Star),
             '/' => pat!(self, Token::Slash),
             'A'..='Z' | 'a'..='z' | '_' => {
@@ -234,8 +241,8 @@ impl<'a> Lexer<'a> {
         self.mark = Some(self.position);
     }
 
-    fn span(&mut self) -> Span {
-        Span::new(self.mark.take().unwrap_or(self.position), self.position)
+    fn span(&mut self) -> (usize, usize) {
+        (self.mark.take().unwrap_or(self.position), self.position)
     }
 
     fn current_char(&self) -> Option<char> {

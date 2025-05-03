@@ -2,6 +2,7 @@ use std::{error::Error, iter::Peekable};
 use crate::{ast::statements::Statement, lexer::{Lexer, Token}};
 use crate::ast::expressions::{Expr, Expression, Op};
 use crate::ast::statements::Stmt;
+use crate::lexer::Spanned;
 use crate::types::typ::Type;
 
 pub struct Parser<'a, 'b> {
@@ -16,6 +17,13 @@ macro_rules! expect {
         };
         consumed
     }};
+    ($self:expr,$pat:pat => character $what:literal) => {{
+        let consumed = $self.lexer.next().ok_or(format!("unexpected end of file, expected '{}'", $what))??;
+        let $pat = consumed.1 else {
+            return Err(format!("unexpected {:?}, expected '{}'", consumed.1, $what).into());
+        };
+        consumed
+    }};
 }
 
 impl<'a, 'b> Parser<'a, 'b> {
@@ -27,7 +35,7 @@ impl<'a, 'b> Parser<'a, 'b> {
 
     fn top_level_statement(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
         match self.lexer.peek().unwrap() {
-            Ok((_, Token::Fn, _)) => self.function(),
+            Ok((_, Token::Declare | Token::Fn, _)) => self.function(),
             Ok((_, unexpected, _)) => todo!("encountered unknown token {:?}", unexpected),
             Err(e) => unimplemented!("parsing errors {}", e)
         }
@@ -36,34 +44,72 @@ impl<'a, 'b> Parser<'a, 'b> {
     fn statement(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
         match self.lexer.peek().unwrap() {
             Ok((_, Token::Let, _)) => self.let_(),
-            Ok((_, unexpected, _)) => todo!("encountered unknown token {:?}", unexpected),
+            Ok((_, Token::Return, _)) => self.return_(),
+            Ok(_) => {
+                let expr = self.expression()?;
+                expect!(self, Token::Semicolon);
+                let (start, end) = (expr.0, expr.2);
+                Ok((start, Statement::Expression(expr), end))
+            },
             Err(e) => unimplemented!("parsing errors {}", e)
         }
     }
 
     fn let_(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
         let (start, _, _) = expect!(self, Token::Let);
-        let name = expect!(self, Token::Identifier(..));
+        let name = self.expect_ident()?;
         expect!(self, Token::Assign);
         let value = self.expression()?;
-        let (_, _, end) = expect!(self, Token::Semicolon);
+        let (_, _, end) = expect!(self, Token::Semicolon => character ';');
 
         Ok((start, Statement::Let { name, value }, end))
     }
 
+    fn return_(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
+        let (start, _, _) = expect!(self, Token::Return);
+        let matched: Result<Stmt<'a>, Box<dyn Error>> = match self.lexer.peek() {
+            Some(Ok((_, Token::Semicolon, ref end))) => Ok((start, Statement::Return(None), *end)),
+            Some(Ok(_)) => {
+                let value = self.expression()?;
+                let end = value.2;
+                Ok((start, Statement::Return(Some(value)), end))
+            }
+            Some(Err(e)) => Err(e.clone().into()),
+            None => Err("unexpected end of file, expected ';' or expression".into())
+        };
+
+        expect!(self, Token::Semicolon => character ';');
+
+        Ok(matched?)
+    }
+
     fn function(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
-        let (start, _, _) = expect!(self, Token::Fn);
-        let name = expect!(self, Token::Identifier(..));
+        let (start, defined) = match self.lexer.next().unwrap()? {
+            ((start, Token::Declare, _)) => {
+                expect!(self, Token::Fn);
+                (start, true)
+            },
+            ((start, Token::Fn, _)) => (start, false),
+            _ => unreachable!()
+        };
+
+        let name = self.expect_ident()?;
         expect!(self, Token::Lparen);
+        let args = self.series_of(&Self::typed_identifier, Some(&Token::Comma), &Token::Rparen)?;
         expect!(self, Token::Rparen);
 
         expect!(self, Token::Arrow);
         let return_type = self.type_expression()?;
 
-        let body = self.block()?;
-        let end = body.2;
+        if !defined {
+            let body = self.block()?;
+            let end = body.2;
 
-        Ok((start, Statement::Function { name, args: Vec::new(), return_type, body: Box::new(body) }, end))
+            Ok((start, Statement::Function { name, args, return_type, body: Box::new(body) }, end))
+        } else {
+            let end = return_type.2;
+            Ok((start, Statement::FunctionDeclaration { name, args, return_type }, end))
+        }
     }
 
     fn expression(&mut self) -> Result<Expr, Box<dyn Error>> {
@@ -120,6 +166,9 @@ impl<'a, 'b> Parser<'a, 'b> {
             Some(Ok((start, Token::Int(value), end))) => {
                 Ok((start, Expression::Int(value), end))
             }
+            Some(Ok((start, Token::I32(value), end))) => {
+                Ok((start, Expression::Int32(value), end))
+            }
             Some(Ok((start, Token::Identifier(name), end))) => {
                 Ok((start, Expression::Identifier(name.to_string()), end))
             }
@@ -134,30 +183,61 @@ impl<'a, 'b> Parser<'a, 'b> {
     }
 
     fn type_expression(&mut self) -> Result<Expr, Box<dyn Error>> {
-        let (start, t, end) = expect!(self, Token::TypInt);
-        Ok((start, Expression::Type(Type::Int), end))
+        let (start, typ, end) = match self.lexer.next().unwrap()? {
+            (start, Token::TypInt, end) => (start, Type::Int, end),
+            (start, Token::TypI32, end) => (start, Type::Int32, end),
+            (start, Token::TypNothing, end) => (start, Type::Nothing, end),
+
+            _ => unimplemented!()
+        };
+        Ok((start, Expression::Type(typ), end))
+    }
+
+    fn typed_identifier(&mut self) -> Result<(Token<'a>, Expr), Box<dyn Error>> {
+        let (_, ident, _) = self.expect_ident()?;
+        expect!(self, Token::Colon);
+        let typ = self.type_expression()?;
+        Ok((ident, typ))
     }
 
     fn block(&mut self) -> Result<Stmt<'a>, Box<dyn Error>> {
         let (start, _, _) = expect!(self, Token::Lbrace);
-        let body = self.series_of(&Parser::statement, &Token::Rbrace)?;
+        let body = self.series_of(&Parser::statement, None, &Token::Rbrace)?;
         let (_, _, end) = expect!(self, Token::Rbrace);
 
         Ok((start, Statement::Block(body), end))
     }
 
-    fn series_of(&mut self, parser: &impl Fn(&mut Self) -> Result<Stmt<'a>, Box<dyn Error>>, delim: &Token) -> Result<Vec<Stmt<'a>>, Box<dyn Error>>  {
+    fn series_of<T>(&mut self, parser: &impl Fn(&mut Self) -> Result<T, Box<dyn Error>>, separator: Option<&Token>, delim: &Token) -> Result<Vec<T>, Box<dyn Error>> {
         let mut series = Vec::new();
 
-        loop {
-            match self.lexer.peek() {
-                Some(Ok((_, next, _))) if next == delim => break,
-                Some(Err(e)) => return Err(e.clone().into()),
-                _ => (),
-            }
-            series.push(parser(self)?);
+        if matches!(self.lexer.peek(), Some(Ok((_, next, _))) if next == delim) {
+            return Ok(series);
         }
+
+        loop {
+            series.push(parser(self)?);
+            match (separator, self.lexer.peek()) {
+                (_, Some(Ok((_, next, _)))) if next == delim => break,
+                (Some(separator), Some(Ok((_, next, _)))) if next == separator => {
+                    self.lexer.next();
+                },
+                (_, Some(Err(e))) => return Err(e.clone().into()),
+                (Some(_), _) => return Err(format!("expected separator {:?}", separator).into()),
+                (None, _) => continue,
+            }
+        }
+
         Ok(series)
+    }
+
+    fn expect_ident(&mut self) -> Result<Spanned<Token<'a>>, Box<dyn Error>> {
+        let consumed = self.lexer.next().ok_or("unexpected end of file, expected ';'".to_string())??;
+        match &consumed {
+            (_, Token::Identifier(..), _) => Ok(consumed),
+            // FIXME: remove debug formatting
+            (_, received, _) => Err(format!("unexpected {:?}, expected identifier", received).into())
+        }
     }
 }
 

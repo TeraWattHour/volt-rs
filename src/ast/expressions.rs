@@ -1,4 +1,3 @@
-use crate::ast::node::Node;
 use crate::lexer::Spanned;
 use crate::types::typ::Type;
 
@@ -61,16 +60,6 @@ pub enum Op {
     LogicalOr,
     LogicalAnd,
 }
-
-// #[macro_export]
-// macro_rules! ident {
-//     ($i:expr) => {
-//         match &*$i.inner {
-//             Expression::Identifier(name) => name.clone(),
-//             _ => unreachable!(),
-//         }
-//     };
-// }
 
 #[macro_export]
 macro_rules! typ {

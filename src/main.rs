@@ -14,7 +14,7 @@ use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 use inkwell::context::Context;
 use crate::ast::statements::Statement;
-use crate::compiler::compiler::CompilerContext;
+use crate::compiler::compiler::Compiler;
 use crate::errors::OpaqueError;
 use crate::types::checker::TypeEnv;
 
@@ -26,7 +26,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut lexer = lexer::Lexer::new(&content);
     let mut parser = parser::Parser::new(&mut lexer);
     let program = parser.collect::<Result<Vec<_>, _>>()?;
-    dbg!(program);
 
     // let writer = StandardStream::stderr(ColorChoice::Always);
     // let config = term::Config::default();
@@ -40,10 +39,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     //     }
     //     exit(1);
     // }
-    // let mut context = Context::create();
-    // let mut compiler = CompilerContext::new(&mut context);
-    // let compiled = compiler.compile_program(program)?;
-    // compiled.print_to_stderr();
+    let mut context = Context::create();
+    let mut compiler = Compiler::new(&mut context);
+    let compiled = compiler.compile(program.as_slice())?;
+
+    compiled.verify()?;
+    compiled.print_to_stderr();
 
     Ok(())
 }

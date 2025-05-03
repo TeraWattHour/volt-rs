@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crate::ast::statements::{Statement, Stmt};
 use crate::ast::expressions::{Expression, Expr, Op};
-use crate::{extract, ident, variant};
+use crate::extract;
 use crate::lexer::Token;
 use crate::types::typ::Type;
 
@@ -20,7 +20,6 @@ pub enum TypeError<'a, 'b> {
         expected_type: Type,
     }
 }
-
 
 #[derive(Debug)]
 pub struct TypeEnv<'a> {
@@ -87,11 +86,11 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
     fn check_statement(&mut self, stmt: &'b Stmt<'c>, expected_return: Option<(&Type, &'b Stmt<'c>)>) -> Result<(), Vec<TypeError<'b, 'c>>> {
         match &stmt.1 {
             Statement::Let { name, value } => {
-                self.insert_identifier(&name.1, self.mark_expression(value)?);
+                self.insert_identifier(&name.1, self.check_expression(value)?);
                 Ok(())
             }
             Statement::Expression(expr) => {
-                self.mark_expression(expr)?;
+                self.check_expression(expr)?;
                 Ok(())
             }
             Statement::Block(program) => {
@@ -116,7 +115,7 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
                 Ok(())
             }
             Statement::If { condition, body, otherwise } => {
-                if self.mark_expression(condition)? != Type::Bool {
+                if self.check_expression(condition)? != Type::Bool {
                     unimplemented!("if condition must be of type bool");
                     // return Err("if condition must be of type bool".into())
                 }
@@ -147,7 +146,7 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
             }
             Statement::Return(returned) => {
                 let returned_type = match returned {
-                    Some(returned) => self.mark_expression(returned)?,
+                    Some(returned) => self.check_expression(returned)?,
                     None => Type::Nothing
                 };
 
@@ -195,12 +194,6 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
         }
     }
 
-    fn mark_expression(&self, expr: &Expr) -> Result<Type, Vec<TypeError<'b, 'c>>> {
-        let typ = self.check_expression(expr)?;
-        // *expr.1.resolved_type.borrow_mut() = Some(typ.clone());
-        Ok(typ)
-    }
-
     fn check_expression(&self, expr: &Expr) -> Result<Type, Vec<TypeError<'b, 'c>>> {
         match &expr.1 {
             Expression::Boolean(_) => Ok(Type::Bool),
@@ -209,7 +202,7 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
             Expression::Int64(_) => Ok(Type::Int64),
             Expression::Identifier(name) => Ok(self.lookup(name).unwrap()),
             Expression::Prefix { op, rhs } => {
-                let rhs_type = self.mark_expression(rhs)?;
+                let rhs_type = self.check_expression(rhs)?;
                 Ok(match (op, &rhs_type) {
                     (Op::Not, Type::Bool | numeric!()) => Type::Bool,
                     (Op::Negate, numeric!()) => rhs_type.clone(),
@@ -217,8 +210,8 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
                 })
             }
             Expression::Infix { lhs, op, rhs } => {
-                let left_type = self.mark_expression(lhs)?;
-                let right_type = self.mark_expression(rhs)?;
+                let left_type = self.check_expression(lhs)?;
+                let right_type = self.check_expression(rhs)?;
 
                 Ok(match (&left_type, op, &right_type) {
                     (numeric!(), Op::Plus | Op::Minus | Op::Asterisk | Op::Slash | Op::Modulo, _) if &left_type == &right_type => left_type.clone(),
@@ -247,7 +240,7 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
                     // return Err(OpaqueError::wrong_argument_count(self.file_id, expr, expected_args.len(), args.len()));
                 }
 
-                let arg_types = args.iter().map(|arg| self.mark_expression(arg)).collect::<Result<Vec<_>, _>>()?;
+                let arg_types = args.iter().map(|arg| self.check_expression(arg)).collect::<Result<Vec<_>, _>>()?;
                 let wrong_arguments = arg_types.iter().enumerate().zip(expected_args.iter()).filter(|((_, arg), expected)| arg != expected).collect::<Vec<_>>();
                 if wrong_arguments.len() > 0 {
                     unimplemented!("wrong argument types");
@@ -256,9 +249,9 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
 
                 Ok(*returned.clone())
             }
-            Expression::AddressOf(rhs) => Ok(Type::Address(Box::new(self.mark_expression(rhs)?))),
+            Expression::AddressOf(rhs) => Ok(Type::Address(Box::new(self.check_expression(rhs)?))),
             Expression::Dereference(rhs) => {
-                match self.mark_expression(rhs)? {
+                match self.check_expression(rhs)? {
                     Type::Address(t) => Ok(*t),
                     _ => { unimplemented!("cant dereference non-pointer") }
                 }

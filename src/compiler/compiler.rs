@@ -1,4 +1,4 @@
-use crate::lexer::Token;
+use crate::lexer::{Spanned, Token};
 use std::collections::HashMap;
 use std::error::Error;
 use inkwell::builder::Builder;
@@ -11,75 +11,119 @@ use crate::{extract, ident, typ};
 use crate::ast::expressions::{Expr, Expression, Op};
 use crate::types::typ::Type;
 
-pub struct CompilerContext<'ctx> {
+pub struct Compiler<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
-    builder: Builder<'ctx>,
-    named_values: HashMap<String, PointerValue<'ctx>>,
-    functions: HashMap<String, FunctionValue<'ctx>>,
+    functions: HashMap<String, FunctionValue<'ctx>>
 }
 
-impl <'ctx> CompilerContext<'ctx> {
+pub struct FunctionCompiler<'a, 'b, 'ctx, 'stmt> {
+    function: &'a FunctionValue<'ctx>,
+    parent: &'a Compiler<'ctx>,
+    locals: HashMap<String, (PointerValue<'ctx>, Type)>,
+    builder: Builder<'ctx>,
+    vars_builder: Builder<'ctx>,
+    statement: &'b Stmt<'stmt>
+}
+
+impl<'ctx> Compiler<'ctx> {
     pub fn new(context: &'ctx Context) -> Self {
-        CompilerContext {
+        Self {
+            module: context.create_module("main"),
             context,
-            module: context.create_module("default"),
-            builder: context.create_builder(),
-            named_values: HashMap::new(),
             functions: HashMap::new(),
         }
     }
 
-    pub fn compile_program(&mut self, program: &[Stmt]) -> Result<&Module<'ctx>, Box<dyn Error>> {
-        let functions = program.iter().filter(|stmt| matches!(&stmt.1, Statement::Function {..} | Statement::FunctionDeclaration { .. })).collect::<Vec<_>>();
-        for function in functions {
-            match &function.1 {
-                Statement::FunctionDeclaration { name, args, return_type } | Statement::Function { name, args, return_type, .. } => {
+    pub fn compile(&mut self, program: &[Stmt]) -> Result<&Module<'ctx>, Box<dyn Error>> {
+        self.collect_functions(program)?;
+
+        for stmt in program {
+            match &stmt.1 {
+                Statement::FunctionDeclaration { name, args, return_type } |
+                Statement::Function { name, args, return_type, .. } => {
+                    FunctionCompiler::compile(self, stmt)?;
+                }
+                _ => ()
+            }
+        }
+
+        Ok(&self.module)
+    }
+
+    fn collect_functions(&mut self, program: &[Stmt]) -> Result<(), Box<dyn Error>> {
+        for stmt in program {
+            match &stmt.1 {
+                Statement::FunctionDeclaration { name, args, return_type} |
+                Statement::Function { name, args, return_type, .. } => {
+                    let name = ident!(name.1);
                     extract!(return_type, Expression::Type(return_type));
                     let function_value = self.module.add_function(
-                    &ident!(name.1),
+                        &name,
                         return_type.fn_type(
                             self.context,
                             &args.iter().map(|(name, typ)| basic_type_to_metadata_type(typ!(typ).basic_type(self.context))).collect::<Vec<_>>()
                         ),
                         None
                     );
-                    self.functions.insert(ident!(name.1), function_value);
+                    self.functions.insert(name, function_value);
                 }
                 _ => ()
             }
         }
 
-        for stmt in program {
-            match &stmt.1 {
-                Statement::Function { .. } => self.compile_function(stmt)?,
-                _ => ()
-            }
-        }
-        Ok(&self.module)
+        Ok(())
     }
+}
 
-    fn compile_block(&mut self, block: &Stmt) -> Result<(), Box<dyn Error>> {
-        extract!(block, Statement::Block(block));
-        for stmt in block {
-            self.compile_statement(stmt)?;
+impl<'a, 'b, 'ctx, 'stmt,> FunctionCompiler<'a, 'b, 'ctx, 'stmt> {
+    pub fn compile(compiler: &'a Compiler<'ctx>, function: &'b Stmt<'stmt>) -> Result<(), Box<dyn Error>> {
+        extract!(function, Statement::Function { name, args, return_type, body });
+        extract!(body, Statement::Block(body));
+
+        let vars_builder = compiler.context.create_builder();
+        let function_value = compiler.functions.get(&ident!(name.1)).expect("function value must be available at this point");
+        let entry = compiler.context.append_basic_block(*function_value, "entry");
+        vars_builder.position_at_end(entry);
+        vars_builder.build_alloca(compiler.context.i8_type(), "boundary")?;
+
+        if let Some(first_instr) = entry.get_first_instruction() {
+            vars_builder.position_before(&first_instr);
         }
+
+        let builder = compiler.context.create_builder();
+        builder.position_at_end(entry);
+
+        let mut fc = Self {
+            function: function_value,
+            parent: compiler,
+            builder,
+            vars_builder,
+            locals: HashMap::new(),
+            statement: function,
+        };
+
+        for (val, (name, typ)) in function_value.get_param_iter().zip(args) {
+            extract!(typ, Expression::Type(typ));
+            let alloca = fc.alloca(name, val.get_type(), val)?;
+            fc.locals.insert(ident!(name), (alloca, typ.clone()));
+        }
+
+        for stmt in body {
+            fc.compile_statement(stmt)?;
+        }
+
         Ok(())
     }
 
-    fn compile_statement(&mut self, stmt: &Stmt) -> Result<(), Box<dyn Error>> {
+    fn compile_statement(&mut self, stmt: &'b Stmt<'stmt>) -> Result<(), Box<dyn Error>> {
         match &stmt.1 {
-            Statement::Let { name, value } => {
+            Statement::Let { name: (_, name, _), value } => {
                 let (value, typ) = self.expression(value)?;
-
-                let function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-
-                // FIXME: host allocations to the top of each function
-                let alloca = self.create_entry_block_alloca(function, &ident!(name.1), typ.basic_type(self.context))?;
-                self.builder.build_store(alloca, value)?;
-                self.named_values.insert(ident!(name.1), alloca);
+                let alloca = self.alloca(name, typ.basic_type(self.parent.context), value)?;
+                self.locals.insert(ident!(name), (alloca, typ));
             }
-            Statement::Block(block) => { self.compile_block(stmt)?; },
+            Statement::Block(block) => { self.block(stmt)?; },
             Statement::Expression(expr) => { self.expression(expr)?; },
             Statement::Return(ret) => {
                 if let Some(expr) = ret {
@@ -89,82 +133,96 @@ impl <'ctx> CompilerContext<'ctx> {
                     self.builder.build_return(None)?;
                 }
             }
-            Statement::If { condition, body, otherwise } => {
-                let (cond, typ) = self.expression(condition)?;
-                let cond = self.builder.build_int_compare(
-                    inkwell::IntPredicate::NE,
-                    cond.into_int_value(),
-                    self.context.bool_type().const_zero(),
-                    "ifcond"
-                )?;
-
-                let function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-
-                let then_block = self.context.append_basic_block(function, "then");
-                let else_block = self.context.append_basic_block(function, "else");
-                let merge_block = self.context.append_basic_block(function, "merge");
-
-                self.builder.build_conditional_branch(cond, then_block, else_block)?;
-
-                self.builder.position_at_end(then_block);
-                self.compile_block(body)?;
-                self.builder.build_unconditional_branch(merge_block)?;
-
-                if let Some(else_stmt) = otherwise {
-                    self.builder.position_at_end(else_block);
-                    self.compile_statement(else_stmt)?;
-                    self.builder.build_unconditional_branch(merge_block)?;
-                }
-
-                self.builder.position_at_end(merge_block);
-            }
+            // Statement::If { condition, body, otherwise } => {
+            //     let (cond, typ) = self.expression(condition)?;
+            //     let cond = self.builder.build_int_compare(
+            //         inkwell::IntPredicate::NE,
+            //         cond.into_int_value(),
+            //         self.context.bool_type().const_zero(),
+            //         "ifcond"
+            //     )?;
+            //
+            //     let function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+            //
+            //     let then_block = self.context.append_basic_block(function, "then");
+            //     let else_block = self.context.append_basic_block(function, "else");
+            //     let merge_block = self.context.append_basic_block(function, "merge");
+            //
+            //     self.builder.build_conditional_branch(cond, then_block, else_block)?;
+            //
+            //     self.builder.position_at_end(then_block);
+            //     self.compile_block(body)?;
+            //     self.builder.build_unconditional_branch(merge_block)?;
+            //
+            //     if let Some(else_stmt) = otherwise {
+            //         self.builder.position_at_end(else_block);
+            //         self.compile_statement(else_stmt)?;
+            //         self.builder.build_unconditional_branch(merge_block)?;
+            //     }
+            //
+            //     self.builder.position_at_end(merge_block);
+            // }
             _ => unimplemented!("compilation of statement {:?} not implemented", stmt)
         };
 
         Ok(())
     }
 
-    fn compile_function(&mut self, function: &Stmt) -> Result<(), Box<dyn Error>> {
-        extract!(function, Statement::Function { name, args, return_type, body });
-        extract!(return_type, Expression::Type(return_type));
+    // fn compile_function(&mut self, function: &Stmt) -> Result<(), Box<dyn Error>> {
+    //     extract!(function, Statement::Function { name, args, return_type, body });
+    //     extract!(return_type, Expression::Type(return_type));
+    //
+    //     let function_value = self.functions.get(&ident!(name.1)).unwrap();
+    //
+    //     let entry = self.context.append_basic_block(*function_value, "entry");
+    //     self.builder.position_at_end(entry);
+    //
+    //
+    //
+    //     self.compile_block(body)?;
+    //
+    //     // match return_type.try_basic_type(self.context) {
+    //     //     Ok(typ) => self.builder.build_return(Some(&typ.const_zero()))?,
+    //     //     Err(_) => self.builder.build_return(None)?,
+    //     // };
+    //
+    //     Ok(())
+    // }
+    //
 
-        let function_value = self.functions.get(&ident!(name.1)).unwrap();
+    fn block(&mut self, block: &'b Stmt<'stmt>) -> Result<(), Box<dyn Error>> {
+        extract!(block, Statement::Block(block));
 
-        let entry = self.context.append_basic_block(*function_value, "entry");
-        self.builder.position_at_end(entry);
-
-        for (val, (name, _)) in function_value.get_param_iter().zip(args) {
-            let alloca = self.create_entry_block_alloca(*function_value, &ident!(name), val.get_type())?;
-            self.builder.build_store(alloca, val)?;
-            self.named_values.insert(ident!(name), alloca);
+        for stmt in block {
+            self.compile_statement(stmt)?;
         }
-
-        self.compile_block(body)?;
-
-        match return_type.try_basic_type(self.context) {
-            Ok(typ) => self.builder.build_return(Some(&typ.const_zero()))?,
-            Err(_) => self.builder.build_return(None)?,
-        };
 
         Ok(())
     }
 
+    fn alloca(&mut self, ident: &Token, typ: BasicTypeEnum<'ctx>, value: BasicValueEnum<'ctx>) -> Result<PointerValue<'ctx>, Box<dyn Error>> {
+        let alloca = self.vars_builder.build_alloca(typ, &ident!(ident))?;
+        self.builder.build_store(alloca, value)?;
+        Ok(alloca)
+    }
+
     fn expression(&mut self, expr: &Expr) -> Result<(BasicValueEnum<'ctx>, Type), Box<dyn Error>> {
+        let ctx = self.parent.context;
         match &expr.1 {
             Expression::Int(i) => {
                 let value = if cfg!(target_pointer_width = "64") {
-                    self.context.i64_type().const_int(*i as u64, *i < 0)
+                    ctx.i64_type().const_int(*i as u64, *i < 0)
                 } else {
-                    self.context.i32_type().const_int(*i as u64, *i < 0)
+                    ctx.i32_type().const_int(*i as u64, *i < 0)
                 };
                 Ok((value.into(), Type::Int))
             }
             Expression::Int64(i) => {
-                let value = self.context.i64_type().const_int(*i as u64, *i < 0);
+                let value = ctx.i64_type().const_int(*i as u64, *i < 0);
                 Ok((value.into(), Type::Int64))
             }
             Expression::Int32(i) => {
-                let value = self.context.i32_type().const_int(*i as u64, *i < 0);
+                let value = ctx.i32_type().const_int(*i as u64, *i < 0);
                 Ok((value.into(), Type::Int32))
             }
             Expression::Prefix { op, rhs } => {
@@ -176,9 +234,9 @@ impl <'ctx> CompilerContext<'ctx> {
                 })
             }
             Expression::Identifier(name) => {
-                let resolved = self.named_values.get(name).unwrap();
-                unimplemented!("type resolution");
-                Ok((self.builder.build_load(resolved.get_type(), *resolved, name)?.as_basic_value_enum(), Type::Int))
+                let (resolved, typ) = self.locals.get(name).unwrap();
+                let value = self.builder.build_load(typ.basic_type(self.parent.context), *resolved, name)?;
+                Ok((value.as_basic_value_enum(), typ.clone()))
             },
             Expression::Infix { lhs, op, rhs } => {
                 let (l, l_typ) = self.expression(lhs)?;
@@ -204,7 +262,7 @@ impl <'ctx> CompilerContext<'ctx> {
                     _ => return Err("can only dereference pointer types".into())
                 };
 
-                let value = self.builder.build_load(typ.basic_type(self.context), value.into_pointer_value(), "dereftmp")?;
+                let value = self.builder.build_load(typ.basic_type(ctx), value.into_pointer_value(), "dereftmp")?;
                 Ok((value, dereferenced))
             }
             // Expression::AddressOf(inner) => Ok(self.named_values.get(&ident!(inner)).unwrap().clone().into()),
@@ -216,11 +274,11 @@ impl <'ctx> CompilerContext<'ctx> {
         let l = lhs.into_int_value();
         let r = rhs.into_int_value();
         Ok(match op {
-            Op::Plus => (self.builder.build_int_add(l, r, "addtemp")?.as_basic_value_enum(),  l_typ),
-            Op::Minus => (self.builder.build_int_sub(l, r, "subtemp")?.as_basic_value_enum(),  l_typ),
+            Op::Plus => (self.builder.build_int_add(l, r, "addtemp")?.as_basic_value_enum(), l_typ),
+            Op::Minus => (self.builder.build_int_sub(l, r, "subtemp")?.as_basic_value_enum(), l_typ),
             Op::Asterisk => (self.builder.build_int_mul(l, r, "multemp")?.as_basic_value_enum(), l_typ),
             Op::Slash => (self.builder.build_int_signed_div(l, r, "divtemp")?.as_basic_value_enum(), l_typ),
-            Op::Modulo => (self.builder.build_int_signed_rem(l, r, "remtemp")?.as_basic_value_enum(),  l_typ),
+            Op::Modulo => (self.builder.build_int_signed_rem(l, r, "remtemp")?.as_basic_value_enum(), l_typ),
 
             Op::Eq => (self.builder.build_int_compare(inkwell::IntPredicate::EQ, l, r, "eqtemp")?.as_basic_value_enum(), Type::Bool),
             Op::Neq => (self.builder.build_int_compare(inkwell::IntPredicate::NE, l, r, "neqtemp")?.as_basic_value_enum(), Type::Bool),
@@ -234,24 +292,8 @@ impl <'ctx> CompilerContext<'ctx> {
             _ => unreachable!("operator `{:?}` is not implemented for integer values", op)
         })
     }
-
-    fn create_entry_block_alloca(
-        &self,
-        function: FunctionValue<'ctx>,
-        name: &str,
-        ty: BasicTypeEnum<'ctx>
-    ) -> Result<PointerValue<'ctx>, Box<dyn Error>> {
-        let builder = self.context.create_builder();
-        let entry = function.get_first_basic_block().unwrap();
-        match entry.get_first_instruction() {
-            Some(first_instr) => builder.position_before(&first_instr),
-            None => builder.position_at_end(entry),
-        }
-        let alloca = builder.build_alloca(ty, name)?;
-        Ok(alloca)
-    }
-
 }
+
 
 fn basic_type_to_metadata_type(basic_type: BasicTypeEnum) -> BasicMetadataTypeEnum {
     match basic_type {
