@@ -1,3 +1,0 @@
-fn main(z: i32, y: i32) -> i32 {
-    return z + 32i32;
-}
