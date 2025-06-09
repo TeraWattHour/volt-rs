@@ -8,7 +8,7 @@ use std::str::FromStr;
 
 pub struct Lexer<'a> {
     pub file_id: usize,
-    source: &'a str,
+    pub source: &'a str,
     position: usize,
     mark: Option<usize>,
 }
@@ -113,18 +113,13 @@ lazy_static! {
 }
 
 lazy_static! {
-    static ref DECIMAL_INTEGER_RE: Regex = {
-        Regex::new("^(0|[1-9]([_']?[0-9])*)([ui](64|32)?)?")
-            .expect("decimal integer regex must compile")
-    };
+    static ref DECIMAL_INTEGER_RE: Regex = Regex::new("^(0|[1-9]([_']?[0-9])*)([ui](64|32)?)?").expect("decimal integer regex must compile");
 }
 
 macro_rules! chop_while {
     ($self:expr, $pat:expr) => {{
         let start = $self.position;
-        while $self.position < $self.source.len()
-            && $self.source[$self.position..].starts_with($pat)
-        {
+        while $self.position < $self.source.len() && $self.source[$self.position..].starts_with($pat) {
             $self.advance()
         }
         start
@@ -147,12 +142,7 @@ macro_rules! pat {
 
 impl<'a> Lexer<'a> {
     pub fn new(file_id: usize, source: &'a str) -> Self {
-        Lexer {
-            file_id,
-            source,
-            mark: None,
-            position: 0,
-        }
+        Lexer { file_id, source, mark: None, position: 0 }
     }
 
     fn next_token(&mut self) -> Option<Result<Token<'a>, SyntaxError>> {
@@ -198,11 +188,7 @@ impl<'a> Lexer<'a> {
                 let start = chop_while!(self, |c| char::is_ascii_alphanumeric(&c) || c == '_');
                 let identifier = &self.source[start..self.position];
 
-                let token = if let Some(token) = KEYWORDS.get(identifier) {
-                    token.clone()
-                } else {
-                    Token::Identifier(identifier)
-                };
+                let token = if let Some(token) = KEYWORDS.get(identifier) { token.clone() } else { Token::Identifier(identifier) };
                 Some(Ok(token))
             }
             '1'..='9' => Some(self.decimal_integer()),
@@ -245,15 +231,9 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
 
-        if self
-            .current_char()
-            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
-        {
+        if self.current_char().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
             let start = chop_while!(self, Self::is_alphanumeric);
-            return Err(SyntaxError::unexpected_after_number(
-                self.file_id,
-                start..self.position,
-            ));
+            return Err(SyntaxError::unexpected_after_number(self.file_id, start..self.position));
         }
 
         enum Width {
@@ -301,15 +281,11 @@ impl<'a> Lexer<'a> {
         num.parse().map_err(|e| {
             let message = format!("malformed integer literal, {}", e);
             SyntaxError {
-                diagnostic: Diagnostic::new(Severity::Error)
-                    .with_message(&message)
-                    .with_label(Label::new(
-                        LabelStyle::Primary,
-                        self.file_id,
-                        self.mark
-                            .expect("mark must've been placed before an integer literal")
-                            ..self.position - 3, // -3 is due to the width suffix
-                    )),
+                diagnostic: Diagnostic::new(Severity::Error).with_message(&message).with_label(Label::new(
+                    LabelStyle::Primary,
+                    self.file_id,
+                    self.mark.expect("mark must've been placed before an integer literal")..self.position - 3, // -3 is due to the width suffix
+                )),
                 message,
             }
         })
@@ -327,6 +303,59 @@ impl<'a> Iterator for Lexer<'a> {
     }
 }
 
+impl Token<'_> {
+    pub fn display(&self) -> &'static str {
+        match self {
+            Token::Identifier(_) => "identifier",
+            Token::Int(_) => "integer",
+            Token::Unsigned(_) => "unsigned",
+            Token::Int64(_) => "64-bit integer",
+            Token::Int32(_) => "32-bit integer",
+            Token::Unsigned64(_) => "64-bit unsigned integer",
+            Token::Unsigned32(_) => "32-bit unsigned integer",
+            Token::Plus => "`+`",
+            Token::Minus => "`-`",
+            Token::Arrow => "`->`",
+            Token::Ampersand => "`&`",
+            Token::LogicalAnd => "`&&`",
+            Token::Star => "`*`",
+            Token::Slash => "`/`",
+            Token::Assign => "`=`",
+            Token::Equals => "`==`",
+            Token::Gte => "`>=`",
+            Token::Gt => "`>`",
+            Token::Lte => "`<=`",
+            Token::Lt => "`<`",
+            Token::Semicolon => "`;`",
+            Token::Colon => "`:`",
+            Token::Comma => "`,`",
+            Token::Lbrace => "`{`",
+            Token::Rbrace => "`}`",
+            Token::Lparen => "`(`",
+            Token::Rparen => "`)`",
+            Token::Lbracket => "`[`",
+            Token::Rbracket => "`]`",
+            Token::Dot => "`.`",
+
+            Token::Declare => "`declare`",
+            Token::Fn => "`fn`",
+            Token::Let => "`let`",
+            Token::If => "`if`",
+            Token::Else => "`else`",
+            Token::True => "`true`",
+            Token::False => "`false`",
+            Token::Return => "`return`",
+
+            Token::TypInt => "`isize`",
+            Token::TypI32 => "`i32`",
+            Token::TypI64 => "`i64`",
+            Token::TypF32 => "`f32`",
+            Token::TypF64 => "`f64`",
+            Token::TypBool => "`bool`",
+            Token::TypNothing => "`Nothing`",
+        }
+    }
+}
 #[cfg(test)]
 mod lexer_test {
     use super::*;
@@ -347,21 +376,7 @@ mod lexer_test {
     #[test]
     fn simple_arithmetic() {
         let source = "1 + 2 - 3* 4/5+0*999";
-        let expected = &[
-            Int("1"),
-            Plus,
-            Int("2"),
-            Minus,
-            Int("3"),
-            Star,
-            Int("4"),
-            Slash,
-            Int("5"),
-            Plus,
-            Int("0"),
-            Star,
-            Int("999"),
-        ];
+        let expected = &[Int("1"), Plus, Int("2"), Minus, Int("3"), Star, Int("4"), Slash, Int("5"), Plus, Int("0"), Star, Int("999")];
         simple_lexer_test(source, expected);
     }
 
@@ -398,17 +413,7 @@ mod lexer_test {
     #[test]
     fn simple_property_access() {
         let source = "x.a.y*2u+0";
-        let expected = &[
-            Identifier("x"),
-            Dot,
-            Identifier("a"),
-            Dot,
-            Identifier("y"),
-            Star,
-            Unsigned("2"),
-            Plus,
-            Int("0"),
-        ];
+        let expected = &[Identifier("x"), Dot, Identifier("a"), Dot, Identifier("y"), Star, Unsigned("2"), Plus, Int("0")];
         simple_lexer_test(source, expected);
     }
 
