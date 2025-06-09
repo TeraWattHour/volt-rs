@@ -1,7 +1,7 @@
 use crate::spanned::Spanned;
 use crate::types::typ::Type;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node {
     pub id: usize,
     pub node: Spanned<Expression>,
@@ -25,24 +25,14 @@ impl NodeIdGen {
 
 impl Node {
     pub fn new(node_id_gen: &mut NodeIdGen, expression: Spanned<Expression>) -> Self {
-        Self {
-            id: node_id_gen.gen(),
-            node: expression,
-        }
+        Self { id: node_id_gen.gen(), node: expression }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
-    Prefix {
-        op: Op,
-        rhs: Box<Node>,
-    },
-    Infix {
-        lhs: Box<Node>,
-        op: Op,
-        rhs: Box<Node>,
-    },
+    Prefix { op: Op, rhs: Box<Node> },
+    Infix { lhs: Box<Node>, op: Op, rhs: Box<Node> },
 
     AddressOf(Box<Node>),
     Dereference(Box<Node>),
@@ -57,22 +47,12 @@ pub enum Expression {
     Identifier(String),
     String(String),
 
-    IndexAccess {
-        lhs: Box<Node>,
-        rhs: Box<Node>,
-    },
-    FieldAccess {
-        lhs: Box<Node>,
-        rhs: Box<Node>,
-        dereferenced: bool,
-    },
-    Call {
-        lhs: Box<Node>,
-        args: Vec<Node>,
-    },
+    IndexAccess { lhs: Box<Node>, rhs: Box<Node> },
+    FieldAccess { lhs: Box<Node>, rhs: Box<Node>, dereferenced: bool },
+    Call { lhs: Box<Node>, args: Vec<Node> },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Op {
     AddressOf,
     Dereference,
