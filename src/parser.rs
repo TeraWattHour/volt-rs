@@ -104,9 +104,12 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         self.expect(Token::Arrow)?;
         let return_type = self.type_expression()?;
 
-        let body = self.block()?;
+        let body = match self.block()? {
+            Statement::Block(body) => body,
+            _ => unreachable!(),
+        };
 
-        Ok(Statement::Function(FunctionDefinition { name, args, return_type, body: Box::new(body) }))
+        Ok(Statement::Function(FunctionDefinition { name, args, return_type, body }))
     }
 
     fn expression(&mut self) -> Result<Node, SyntaxError> {

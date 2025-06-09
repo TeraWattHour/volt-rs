@@ -30,7 +30,15 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let program: Result<Vec<_>, _> = parser.collect();
     match program {
-        Ok(program) => {}
+        Ok(program) => {
+            let mut env = types::checker::TypeEnv::new(file_id);
+            if let Err(error) = env.check_block(&program, None) {
+                for err in error {
+                    dbg!(err);
+                }
+                exit(1);
+            }
+        }
         Err(err) => {
             term::emit(&mut writer.lock(), &config, &files, &err.diagnostic)?;
             exit(1);

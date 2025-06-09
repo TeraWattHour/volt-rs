@@ -1,0 +1,8 @@
+fn main() -> int {
+  return 1 * 1;
+}
+
+fn multiply(a: int, b: int) -> int {
+  if (a > b) return 0;
+  return a * b;
+}

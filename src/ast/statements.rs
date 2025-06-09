@@ -16,7 +16,7 @@ pub enum Statement<'a> {
 #[derive(Debug, Clone)]
 pub struct If<'a> {
     pub condition: Node,
-    pub body: Box<Statement<'a>>,
+    pub body: Vec<Statement<'a>>,
     pub otherwise: Option<Box<Statement<'a>>>,
 }
 
@@ -40,7 +40,7 @@ pub struct FunctionDefinition<'a> {
     pub name: Spanned<Token<'a>>,
     pub args: Vec<(Token<'a>, Node)>,
     pub return_type: Node,
-    pub body: Box<Statement<'a>>,
+    pub body: Vec<Statement<'a>>,
 }
 
 impl<'a> FunctionDefinition<'a> {
