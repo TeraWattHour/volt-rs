@@ -6,11 +6,10 @@ mod parser;
 mod spanned;
 mod types;
 
-use crate::types::checker::TypeEnv;
+// use crate::types::checker::TypeEnv;
 use codespan_reporting::files::SimpleFiles;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
-use inkwell::context::Context;
 use std::error::Error;
 use std::fs;
 use std::process::exit;
@@ -21,7 +20,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let file_id = files.add("example.vt", &content);
 
     let writer = StandardStream::stderr(ColorChoice::Always);
-    let config = term::Config::default();
+    let mut config = term::Config::default();
+    config.before_label_lines = 2;
+    config.after_label_lines = 1;
 
     let mut lexer = lexer::Lexer::new(file_id, &content);
     let mut node_id_gen = ast::expressions::NodeIdGen::new();

@@ -2,9 +2,8 @@ pub mod syntax_error;
 
 use crate::ast::expressions::Expression;
 use crate::ast::expressions::Node;
-use crate::ast::statements::{Statement, Stmt};
+use crate::ast::statements::Statement;
 use crate::spanned::span;
-use crate::types::checker::TypeError;
 use crate::types::typ::Type;
 use crate::{node, typ};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
