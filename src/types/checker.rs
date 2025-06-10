@@ -1,27 +1,19 @@
-// use crate::ast::expressions::{Expression, Node, Op};
-// use crate::ast::statements::{Statement, Statement};
-// use crate::lexer::Token;
-// use crate::types::typ::Type;
-// use crate::{ident, node, stmt};
-// use std::collections::HashMap;
+use std::collections::HashMap;
+
+use crate::{
+    ast::{
+        expressions::{Expression, Node, Op},
+        statements::{FunctionDefinition, If, Statement},
+    },
+    lexer::Token,
+    types::typ::Type,
+};
 
 macro_rules! numeric {
     () => {
         Type::Int32 | Type::Int64 | Type::Int | Type::Float32 | Type::Float64
     };
 }
-
-use std::collections::HashMap;
-
-use crate::{
-    ast::{
-        expressions::{Expression, Node, Op},
-        statements::{FunctionDefinition, If, Let, Statement},
-    },
-    lexer::Token,
-    spanned::Spanned,
-    types::typ::Type,
-};
 
 #[derive(Debug, Clone)]
 pub enum TypeError<'a, 'b> {
@@ -92,16 +84,17 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
     ) -> Result<(), Vec<TypeError<'b, 'c>>> {
         match &stmt {
             Statement::Let(stmt) => {
-                self.insert_identifier(&stmt.name.1, self.check_expression(&stmt.value)?);
+                self.insert_identifier(&stmt.name.1, self.mark_expression(&stmt.value)?);
                 Ok(())
             }
             Statement::Expression(expr) => {
-                self.check_expression(expr)?;
+                self.mark_expression(expr)?;
                 Ok(())
             }
             Statement::Block(program) => {
                 let mut block_env = self.nested();
-                block_env.check_block(program, expected_return)
+                block_env.check_block(program, expected_return)?;
+                Ok(())
             }
             Statement::Function(FunctionDefinition { args, return_type, body, .. }) => {
                 let mut function_env = self.nested();
@@ -120,7 +113,7 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
                 Ok(())
             }
             Statement::If(If { condition, body, otherwise }) => {
-                if self.check_expression(condition)? != Type::Bool {
+                if self.mark_expression(condition)? != Type::Bool {
                     unimplemented!("if condition must be of type bool");
                     // return Err("if condition must be of type bool".into())
                 }
@@ -135,7 +128,10 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
                 if let Some(ref otherwise) = otherwise {
                     if let Err(ref mut err) = match otherwise.as_ref() {
                         Statement::If { .. } => self.check_statement(otherwise, expected_return),
-                        Statement::Block(block) => self.check_block(block, expected_return),
+                        Statement::Block(block) => {
+                            self.check_block(block, expected_return)?;
+                            Ok(())
+                        }
                         _ => unreachable!(),
                     } {
                         errors.append(err);
@@ -150,7 +146,7 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
             }
             Statement::Return(returned) => {
                 let returned_type = match returned {
-                    Some(returned) => self.check_expression(returned)?,
+                    Some(returned) => self.mark_expression(returned)?,
                     None => Type::Nothing,
                 };
 
@@ -207,15 +203,21 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
         }
     }
 
-    fn check_expression(&self, expr: &Node) -> Result<Type, Vec<TypeError<'b, 'c>>> {
-        match &expr.node.1 {
+    fn mark_expression(&self, node: &Node) -> Result<Type, Vec<TypeError<'b, 'c>>> {
+        let typ = self._check_expression(node)?;
+        node.set_type(typ.clone());
+        Ok(typ)
+    }
+
+    fn _check_expression(&self, node: &Node) -> Result<Type, Vec<TypeError<'b, 'c>>> {
+        match &node.node.1 {
             Expression::Boolean(_) => Ok(Type::Bool),
             Expression::Int(_) => Ok(Type::Int),
             Expression::Int32(_) => Ok(Type::Int32),
             Expression::Int64(_) => Ok(Type::Int64),
             Expression::Identifier(name) => Ok(self.lookup(name).unwrap()),
             Expression::Prefix { op, rhs } => {
-                let rhs_type = self.check_expression(rhs)?;
+                let rhs_type = self.mark_expression(rhs)?;
                 Ok(match (op, &rhs_type) {
                     (Op::Not, Type::Bool | numeric!()) => Type::Bool,
                     (Op::Negate, numeric!()) => rhs_type.clone(),
@@ -223,8 +225,8 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
                 })
             }
             Expression::Infix { lhs, op, rhs } => {
-                let left_type = self.check_expression(lhs)?;
-                let right_type = self.check_expression(rhs)?;
+                let left_type = self.mark_expression(lhs)?;
+                let right_type = self.mark_expression(rhs)?;
 
                 Ok(match (&left_type, op, &right_type) {
                     (numeric!(), Op::Plus | Op::Minus | Op::Asterisk | Op::Slash | Op::Modulo, _) if &left_type == &right_type => left_type.clone(),
@@ -245,7 +247,7 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
             Expression::Call { lhs, args } => {
                 let name = match &lhs.node.1 {
                     Expression::Identifier(ident) => ident.clone(),
-                    _ => todo!(),
+                    _ => todo!("methods are not supported yet"),
                 };
                 let Some(Type::Function { args: expected_args, returned }) = self.lookup(&name) else {
                     unimplemented!("cannot call");
@@ -257,7 +259,7 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
                     // return Err(OpaqueError::wrong_argument_count(self.file_id, expr, expected_args.len(), args.len()));
                 }
 
-                let arg_types = args.iter().map(|arg| self.check_expression(arg)).collect::<Result<Vec<_>, _>>()?;
+                let arg_types = args.iter().map(|arg| self.mark_expression(arg)).collect::<Result<Vec<_>, _>>()?;
                 let wrong_arguments =
                     arg_types.iter().enumerate().zip(expected_args.iter()).filter(|((_, arg), expected)| arg != expected).collect::<Vec<_>>();
                 if wrong_arguments.len() > 0 {
@@ -267,8 +269,8 @@ impl<'a, 'b, 'c> TypeEnv<'a> {
 
                 Ok(*returned.clone())
             }
-            Expression::AddressOf(rhs) => Ok(Type::Address(Box::new(self.check_expression(rhs)?))),
-            Expression::Dereference(rhs) => match self.check_expression(rhs)? {
+            Expression::AddressOf(rhs) => Ok(Type::Address(Box::new(self.mark_expression(rhs)?))),
+            Expression::Dereference(rhs) => match self.mark_expression(rhs)? {
                 Type::Address(t) => Ok(*t),
                 _ => {
                     unimplemented!("cant dereference non-pointer")

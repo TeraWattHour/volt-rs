@@ -1,6 +1,6 @@
 use crate::ast::expressions::{Expression, Node, NodeIdGen, Op};
-use crate::ast::statements::{FunctionDeclaration, FunctionDefinition, Let};
-use crate::errors::syntax_error::SyntaxError;
+use crate::ast::statements::{FunctionDeclaration, FunctionDefinition, If, Let};
+use crate::errors::Error;
 use crate::spanned::Spanned;
 use crate::types::typ::Type;
 use crate::{
@@ -18,10 +18,10 @@ pub struct Parser<'a, 'b, 'c> {
 
 macro_rules! unexpected_eof {
     ($self:expr) => {
-        SyntaxError::generic($self.file_id, format!("Unexpected end of file"), $self.source.len() - 1..$self.source.len() + 1)
+        Error::generic($self.file_id, format!("Unexpected end of file"), $self.source.len()..$self.source.len())
     };
     ($self:expr, expected $expected:expr) => {
-        SyntaxError::generic($self.file_id, format!("Unexpected end of file; expected {}", $expected), $self.source.len() - 1..$self.source.len() + 1)
+        Error::generic($self.file_id, format!("Unexpected end of file; expected {}", $expected), $self.source.len()..$self.source.len())
     };
 }
 
@@ -30,27 +30,28 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         Self { file_id: lexer.file_id, source: lexer.source, lexer: lexer.peekable(), node_id_gen }
     }
 
-    fn top_level_statement(&mut self) -> Result<Statement<'a>, SyntaxError> {
-        match self.lexer.peek().cloned().ok_or(unexpected_eof!(self, expected "function declaration or function definition"))?? {
+    fn top_level_statement(&mut self) -> Result<Statement<'a>, Error> {
+        match self.lexer.peek().cloned().ok_or_else(|| unexpected_eof!(self, expected "function declaration or function definition"))?? {
             (_, Token::Declare, _) => self.function_declaration(),
             (_, Token::Fn, _) => self.function(),
-            (start, token, end) => Err(SyntaxError::generic(
+            (start, token, end) => Err(Error::generic(
                 self.file_id,
-                format!("Unexpected token `{}` – expected function or function declaration", token.display()),
+                format!("Unexpected token {} – expected function or function declaration", token.display()),
                 start..end,
             )),
         }
     }
 
-    fn statement(&mut self) -> Result<Statement<'a>, SyntaxError> {
+    fn statement(&mut self) -> Result<Statement<'a>, Error> {
         match self
             .lexer
             .peek()
             .cloned()
-            .ok_or(unexpected_eof!(self, expected "`let` statement, `return` statement, or an expression statement"))??
+            .ok_or_else(|| unexpected_eof!(self, expected "`let` statement, `return` statement, or an expression statement"))??
         {
             (_, Token::Let, _) => self.let_(),
             (_, Token::Return, _) => self.return_(),
+            (_, Token::If, _) => self.if_(),
             _ => {
                 let node = self.expression()?;
                 self.expect(Token::Semicolon)?;
@@ -59,7 +60,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         }
     }
 
-    fn let_(&mut self) -> Result<Statement<'a>, SyntaxError> {
+    fn let_(&mut self) -> Result<Statement<'a>, Error> {
         self.expect(Token::Let)?;
         let name = self.expect_ident()?;
         self.expect(Token::Assign)?;
@@ -69,10 +70,28 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         Ok(Statement::Let(Let { name, value }))
     }
 
-    fn return_(&mut self) -> Result<Statement<'a>, SyntaxError> {
+    fn if_(&mut self) -> Result<Statement<'a>, Error> {
+        self.expect(Token::If)?;
+        let condition = self.expression()?;
+        let body = self.block()?;
+
+        let otherwise = if matches!(self.lexer.peek(), Some(Ok((_, Token::Else, _)))) {
+            self.lexer.next();
+            match self.lexer.peek().cloned().ok_or_else(|| unexpected_eof!(self, expected "`if` or block"))?? {
+                (_, Token::If, _) => Some(Box::new(self.if_()?)),
+                _ => Some(Box::new(Statement::Block(self.block()?))),
+            }
+        } else {
+            None
+        };
+
+        Ok(Statement::If(If { condition, body, otherwise }))
+    }
+
+    fn return_(&mut self) -> Result<Statement<'a>, Error> {
         self.expect(Token::Return)?;
 
-        let matched = match self.lexer.peek().cloned().ok_or(unexpected_eof!(self, expected "`;` or an expression"))?? {
+        let matched = match self.lexer.peek().cloned().ok_or_else(|| unexpected_eof!(self, expected "`;` or an expression"))?? {
             (_, Token::Semicolon, _) => Ok(Statement::Return(None)),
             _ => Ok(Statement::Return(Some(self.expression()?))),
         };
@@ -82,7 +101,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         matched
     }
 
-    fn function_declaration(&mut self) -> Result<Statement<'a>, SyntaxError> {
+    fn function_declaration(&mut self) -> Result<Statement<'a>, Error> {
         self.expect(Token::Declare)?;
         self.expect(Token::Fn)?;
 
@@ -95,7 +114,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         Ok(Statement::FunctionDeclaration(FunctionDeclaration { name, args, return_type }))
     }
 
-    fn function(&mut self) -> Result<Statement<'a>, SyntaxError> {
+    fn function(&mut self) -> Result<Statement<'a>, Error> {
         self.expect(Token::Fn)?;
         let name = self.expect_ident()?;
         self.expect(Token::Lparen)?;
@@ -104,19 +123,16 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         self.expect(Token::Arrow)?;
         let return_type = self.type_expression()?;
 
-        let body = match self.block()? {
-            Statement::Block(body) => body,
-            _ => unreachable!(),
-        };
+        let body = self.block()?;
 
         Ok(Statement::Function(FunctionDefinition { name, args, return_type, body }))
     }
 
-    fn expression(&mut self) -> Result<Node, SyntaxError> {
+    fn expression(&mut self) -> Result<Node, Error> {
         self._infix_expression(0)
     }
 
-    fn _infix_expression(&mut self, precedence: u8) -> Result<Node, SyntaxError> {
+    fn _infix_expression(&mut self, precedence: u8) -> Result<Node, Error> {
         let mut left = match self.lexer.peek() {
             Some(Ok((_, tok, _))) if is_prefix(tok) => {
                 let (start, token, _) = self.lexer.next().unwrap().unwrap();
@@ -142,6 +158,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             }
 
             let op = self.lexer.next().unwrap().unwrap();
+
             let right = self._infix_expression(token_precedence)?;
             let end = right.node.2;
             left = Node::new(
@@ -150,7 +167,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
                     left.node.0,
                     Expression::Infix {
                         lhs: Box::new(left),
-                        op: token_to_op(&op.1).ok_or(SyntaxError::generic(self.file_id, "expected an infix operator", op.0..op.2))?,
+                        op: token_to_op(&op.1).expect("token must be a valid operator, since it has precedence defined"),
                         rhs: Box::new(right),
                     },
                     end,
@@ -161,10 +178,10 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         Ok(left)
     }
 
-    fn _primary_expression(&mut self) -> Result<Node, SyntaxError> {
-        match self.lexer.next().ok_or(unexpected_eof!(self, expected "expression"))?? {
-            (start, Token::Int(value), end) => Ok((start, Expression::Int(value.to_string()), end)),
-            (start, Token::Int32(value), end) => Ok((start, Expression::Int32(value), end)),
+    fn _primary_expression(&mut self) -> Result<Node, Error> {
+        match self.lexer.next().ok_or_else(|| unexpected_eof!(self, expected "expression"))?? {
+            (start, Token::Isize(value), end) => Ok((start, Expression::Int(value.to_string()), end)),
+            (start, Token::I32(value), end) => Ok((start, Expression::Int32(value), end)),
             (start, Token::Identifier(name), end) => Ok((start, Expression::Identifier(name.to_string()), end)),
             (_, Token::Lparen, _) => {
                 let expr = self.expression()?;
@@ -172,50 +189,41 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
                 return Ok(expr);
             }
             (start, token, end) => {
-                Err(SyntaxError::generic(self.file_id, format!("Unexpected token {} – expected an expression", token.display()), start..end))
+                Err(Error::generic(self.file_id, format!("Unexpected token {} – expected an expression", token.display()), start..end))
             }
         }
         .and_then(|expr| Ok(Node::new(self.node_id_gen, expr)))
     }
 
-    fn type_expression(&mut self) -> Result<Node, SyntaxError> {
+    fn type_expression(&mut self) -> Result<Node, Error> {
         let (start, typ, end) = match self.lexer.next().unwrap().unwrap() {
-            (start, Token::TypInt, end) => (start, Type::Int, end),
+            (start, Token::TypIsize, end) => (start, Type::Int, end),
             (start, Token::TypI32, end) => (start, Type::Int32, end),
             (start, Token::TypNothing, end) => (start, Type::Nothing, end),
 
             (start, token, end) => {
-                return Err(SyntaxError::generic(
-                    self.file_id,
-                    format!("Unexpected token {} – expected a type expression", token.display()),
-                    start..end,
-                ))
+                return Err(Error::generic(self.file_id, format!("Unexpected token {} – expected a type expression", token.display()), start..end))
             }
         };
         Ok(Node::new(self.node_id_gen, (start, Expression::Type(typ), end)))
     }
 
-    fn typed_identifier(&mut self) -> Result<(Token<'a>, Node), SyntaxError> {
+    fn typed_identifier(&mut self) -> Result<(Token<'a>, Node), Error> {
         let (_, ident, _) = self.expect_ident()?;
         self.expect(Token::Colon)?;
         let typ = self.type_expression()?;
         Ok((ident, typ))
     }
 
-    fn block(&mut self) -> Result<Statement<'a>, SyntaxError> {
+    fn block(&mut self) -> Result<Vec<Statement<'a>>, Error> {
         self.expect(Token::Lbrace)?;
         let body = self.series_of(&Parser::statement, None, &Token::Rbrace)?;
         self.expect(Token::Rbrace)?;
 
-        Ok(Statement::Block(body))
+        Ok(body)
     }
 
-    fn series_of<T>(
-        &mut self,
-        parser: &impl Fn(&mut Self) -> Result<T, SyntaxError>,
-        separator: Option<&Token>,
-        delim: &Token,
-    ) -> Result<Vec<T>, SyntaxError> {
+    fn series_of<T>(&mut self, parser: &impl Fn(&mut Self) -> Result<T, Error>, separator: Option<&Token>, delim: &Token) -> Result<Vec<T>, Error> {
         let mut series = Vec::new();
 
         if matches!(self.lexer.peek(), Some(Ok((_, next, _))) if next == delim) {
@@ -231,10 +239,10 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
                 }
                 (_, Some(Err(e))) => return Err(e.clone()),
                 (Some(separator), Some(Ok((start, _, end)))) => {
-                    return Err(SyntaxError::generic(self.file_id, format!("Expected separator {}", separator.display()), *start..*end));
+                    return Err(Error::generic(self.file_id, format!("Expected separator {}", separator.display()), *start..*end));
                 }
                 (Some(separator), None) => {
-                    return Err(SyntaxError::generic(self.file_id, format!("Expected separator {}", separator.display()), usize::MAX..usize::MAX));
+                    return Err(Error::generic(self.file_id, format!("Expected separator {}", separator.display()), usize::MAX..usize::MAX));
                 }
                 (None, _) => continue,
             }
@@ -243,29 +251,25 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         Ok(series)
     }
 
-    fn expect_ident(&mut self) -> Result<Spanned<Token<'a>>, SyntaxError> {
-        let consumed = self.lexer.next().ok_or(unexpected_eof!(self, expected "identifier"))??;
+    fn expect_ident(&mut self) -> Result<Spanned<Token<'a>>, Error> {
+        let consumed = self.lexer.next().ok_or_else(|| unexpected_eof!(self, expected "identifier"))??;
         match &consumed {
             (_, Token::Identifier(..), _) => Ok(consumed),
-            (_, received, _) => Err(SyntaxError::generic(
-                self.file_id,
-                format!("Unexpected token {} – expected identifier", received.display()),
-                consumed.0..consumed.2,
-            )),
+            (_, received, _) => {
+                Err(Error::generic(self.file_id, format!("Unexpected token {} – expected identifier", received.display()), consumed.0..consumed.2))
+            }
         }
     }
 
     /// **WARNING**: Only use with tokens that are expected to match with PartialEq.
-    fn expect(&mut self, expected: Token) -> Result<Spanned<Token<'a>>, SyntaxError> {
-        let consumed = self.lexer.next().ok_or(SyntaxError::generic(
-            self.file_id,
-            format!("Unexpected end of file; expected {}", expected.display()),
-            usize::MAX..usize::MAX,
-        ))??;
+    fn expect(&mut self, expected: Token) -> Result<Spanned<Token<'a>>, Error> {
+        let consumed = self.lexer.next().ok_or_else(|| {
+            Error::generic(self.file_id, format!("Unexpected end of file; expected {}", expected.display()), usize::MAX..usize::MAX)
+        })??;
 
         match &consumed {
             (_, token, _) if token == &expected => Ok(consumed),
-            (_, received, _) => Err(SyntaxError::generic(
+            (_, received, _) => Err(Error::generic(
                 self.file_id,
                 format!("Unexpected token {} – expected {}", received.display(), expected.display()),
                 consumed.0..consumed.2,
@@ -275,7 +279,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
 }
 
 impl<'a, 'b, 'c> Iterator for Parser<'a, 'b, 'c> {
-    type Item = Result<Statement<'a>, SyntaxError>;
+    type Item = Result<Statement<'a>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.lexer.peek().is_none() {
@@ -288,8 +292,10 @@ impl<'a, 'b, 'c> Iterator for Parser<'a, 'b, 'c> {
 
 fn get_precedence(token: &Token) -> u8 {
     match token {
-        Token::Plus | Token::Minus => 1,
-        Token::Star | Token::Slash => 2,
+        Token::Eq | Token::Neq => 1,
+        Token::Gt | Token::Lt | Token::Gte | Token::Lte => 2,
+        Token::Plus | Token::Minus => 3,
+        Token::Star | Token::Slash => 4,
         _ => 0,
     }
 }
@@ -300,6 +306,12 @@ fn token_to_op(token: &Token) -> Option<Op> {
         Token::Minus => Some(Op::Minus),
         Token::Star => Some(Op::Asterisk),
         Token::Slash => Some(Op::Slash),
+        Token::Gt => Some(Op::Gt),
+        Token::Lt => Some(Op::Lt),
+        Token::Gte => Some(Op::Gte),
+        Token::Lte => Some(Op::Lte),
+        Token::Eq => Some(Op::Eq),
+        Token::Neq => Some(Op::Neq),
         _ => None,
     }
 }
@@ -310,7 +322,7 @@ fn is_prefix(token: &Token) -> bool {
 
 fn prefix_binding_power(token: &Token) -> u8 {
     match token {
-        Token::Star | Token::Minus => 10,
+        Token::Star => 10,
         _ => 0,
     }
 }

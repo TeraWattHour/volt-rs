@@ -1,9 +1,12 @@
+use std::cell::RefCell;
+
 use crate::spanned::Spanned;
 use crate::types::typ::Type;
 
 #[derive(Debug, Clone)]
 pub struct Node {
     pub id: usize,
+    pub typ: RefCell<Option<Type>>,
     pub node: Spanned<Expression>,
 }
 
@@ -25,7 +28,11 @@ impl NodeIdGen {
 
 impl Node {
     pub fn new(node_id_gen: &mut NodeIdGen, expression: Spanned<Expression>) -> Self {
-        Self { id: node_id_gen.gen(), node: expression }
+        Self { id: node_id_gen.gen(), typ: RefCell::new(None), node: expression }
+    }
+
+    pub fn set_type(&self, typ: Type) {
+        *self.typ.borrow_mut() = Some(typ);
     }
 }
 
@@ -84,14 +91,4 @@ pub enum Op {
 
     LogicalOr,
     LogicalAnd,
-}
-
-#[macro_export]
-macro_rules! typ {
-    ($i:expr) => {
-        match &$i.1 {
-            Expression::Type(typ) => typ.clone(),
-            _ => unreachable!(),
-        }
-    };
 }

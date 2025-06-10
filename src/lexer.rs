@@ -1,4 +1,4 @@
-use crate::errors::syntax_error::SyntaxError;
+use crate::errors::Error;
 use crate::spanned::Spanned;
 use codespan_reporting::diagnostic::{Diagnostic, Label, LabelStyle, Severity};
 use lazy_static::lazy_static;
@@ -17,13 +17,13 @@ pub struct Lexer<'a> {
 pub enum Token<'a> {
     Identifier(&'a str),
 
-    Int(&'a str),
-    Unsigned(&'a str),
+    Isize(&'a str),
+    I32(i32),
+    I64(i64),
 
-    Int64(i64),
-    Int32(i32),
-    Unsigned64(u64),
-    Unsigned32(u32),
+    Usize(&'a str),
+    U32(u32),
+    U64(u64),
 
     Plus,
 
@@ -38,7 +38,9 @@ pub enum Token<'a> {
     Slash,
 
     Assign,
-    Equals,
+
+    Eq,
+    Neq,
 
     Gte,
     Gt,
@@ -59,6 +61,7 @@ pub enum Token<'a> {
     Rbracket,
 
     Dot,
+    Bang,
 
     // Keywords
     Declare,
@@ -71,11 +74,9 @@ pub enum Token<'a> {
     Return,
 
     // Reserved types
-    TypInt,
+    TypIsize,
     TypI32,
     TypI64,
-    TypF32,
-    TypF64,
     TypBool,
     TypNothing,
 }
@@ -101,11 +102,9 @@ lazy_static! {
             ("true", Token::True),
             ("false", Token::False),
             ("return", Token::Return),
-            ("int", Token::TypInt),
+            ("int", Token::TypIsize),
             ("i32", Token::TypI32),
             ("i64", Token::TypI64),
-            ("f32", Token::TypF32),
-            ("f64", Token::TypF64),
             ("bool", Token::TypBool),
             ("Nothing", Token::TypNothing),
         ])
@@ -145,7 +144,7 @@ impl<'a> Lexer<'a> {
         Lexer { file_id, source, mark: None, position: 0 }
     }
 
-    fn next_token(&mut self) -> Option<Result<Token<'a>, SyntaxError>> {
+    fn next_token(&mut self) -> Option<Result<Token<'a>, Error>> {
         if self.position >= self.source.len() {
             return None;
         }
@@ -153,7 +152,7 @@ impl<'a> Lexer<'a> {
         let c = self.current_char()?;
         match c {
             '=' => {
-                pat!(self, '=', Token::Equals);
+                pat!(self, '=', Token::Eq);
                 pat!(self, Token::Assign)
             }
             '-' => {
@@ -163,6 +162,10 @@ impl<'a> Lexer<'a> {
             '>' => {
                 pat!(self, '=', Token::Gte);
                 pat!(self, Token::Gt)
+            }
+            '!' => {
+                pat!(self, '=', Token::Neq);
+                pat!(self, Token::Bang)
             }
             '<' => {
                 pat!(self, '=', Token::Lte);
@@ -217,11 +220,7 @@ impl<'a> Lexer<'a> {
         self.source[self.position + 1..].chars().next()
     }
 
-    fn location(&self) -> usize {
-        self.position
-    }
-
-    fn decimal_integer(&mut self) -> Result<Token<'a>, SyntaxError> {
+    fn decimal_integer(&mut self) -> Result<Token<'a>, Error> {
         let Some(num) = DECIMAL_INTEGER_RE.find(&self.source[self.position..]) else {
             unreachable!();
         };
@@ -233,7 +232,7 @@ impl<'a> Lexer<'a> {
 
         if self.current_char().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_') {
             let start = chop_while!(self, Self::is_alphanumeric);
-            return Err(SyntaxError::unexpected_after_number(self.file_id, start..self.position));
+            return Err(Error::unexpected_after_number(self.file_id, start..self.position));
         }
 
         enum Width {
@@ -247,18 +246,18 @@ impl<'a> Lexer<'a> {
             Some((n, "32")) => (n, Width::ThirtyTwo),
             Some((n, "64")) => (n, Width::SixtyFour),
             Some((n, _)) => (n, Width::Platform),
-            None => return Ok(Token::Int(num)),
+            None => return Ok(Token::Isize(num)),
         };
 
         Ok(match (signed, w) {
-            (true, Width::SixtyFour) => Token::Int64(self.parse(num)?),
-            (false, Width::SixtyFour) => Token::Unsigned64(self.parse(num)?),
+            (true, Width::SixtyFour) => Token::I64(self.parse(num)?),
+            (false, Width::SixtyFour) => Token::U64(self.parse(num)?),
 
-            (true, Width::ThirtyTwo) => Token::Int32(self.parse(num)?),
-            (false, Width::ThirtyTwo) => Token::Unsigned32(self.parse(num)?),
+            (true, Width::ThirtyTwo) => Token::I32(self.parse(num)?),
+            (false, Width::ThirtyTwo) => Token::U32(self.parse(num)?),
 
-            (true, Width::Platform) => Token::Int(num),
-            (false, Width::Platform) => Token::Unsigned(num),
+            (true, Width::Platform) => Token::Isize(num),
+            (false, Width::Platform) => Token::Usize(num),
         })
     }
 
@@ -274,13 +273,13 @@ impl<'a> Lexer<'a> {
         c.is_ascii_alphanumeric() || c == '_'
     }
 
-    fn parse<T: FromStr>(&self, num: &str) -> Result<T, SyntaxError>
+    fn parse<T: FromStr>(&self, num: &str) -> Result<T, Error>
     where
         T: FromStr<Err = std::num::ParseIntError>,
     {
         num.parse().map_err(|e| {
             let message = format!("malformed integer literal, {}", e);
-            SyntaxError {
+            Error {
                 diagnostic: Diagnostic::new(Severity::Error).with_message(&message).with_label(Label::new(
                     LabelStyle::Primary,
                     self.file_id,
@@ -293,10 +292,10 @@ impl<'a> Lexer<'a> {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<Spanned<Token<'a>>, SyntaxError>;
+    type Item = Result<Spanned<Token<'a>>, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         self.skip_whitespace();
-        let start = self.location();
+        let start = self.position;
         let current = self.next_token()?;
 
         Some(current.map(|tok| (start, tok, self.position)))
@@ -307,12 +306,12 @@ impl Token<'_> {
     pub fn display(&self) -> &'static str {
         match self {
             Token::Identifier(_) => "identifier",
-            Token::Int(_) => "integer",
-            Token::Unsigned(_) => "unsigned",
-            Token::Int64(_) => "64-bit integer",
-            Token::Int32(_) => "32-bit integer",
-            Token::Unsigned64(_) => "64-bit unsigned integer",
-            Token::Unsigned32(_) => "32-bit unsigned integer",
+            Token::Isize(_) => "integer",
+            Token::Usize(_) => "unsigned integer",
+            Token::I64(_) => "64-bit integer",
+            Token::I32(_) => "32-bit integer",
+            Token::U64(_) => "64-bit unsigned integer",
+            Token::U32(_) => "32-bit unsigned integer",
             Token::Plus => "`+`",
             Token::Minus => "`-`",
             Token::Arrow => "`->`",
@@ -321,7 +320,8 @@ impl Token<'_> {
             Token::Star => "`*`",
             Token::Slash => "`/`",
             Token::Assign => "`=`",
-            Token::Equals => "`==`",
+            Token::Eq => "`==`",
+            Token::Neq => "`!=`",
             Token::Gte => "`>=`",
             Token::Gt => "`>`",
             Token::Lte => "`<=`",
@@ -335,7 +335,9 @@ impl Token<'_> {
             Token::Rparen => "`)`",
             Token::Lbracket => "`[`",
             Token::Rbracket => "`]`",
+
             Token::Dot => "`.`",
+            Token::Bang => "`!`",
 
             Token::Declare => "`declare`",
             Token::Fn => "`fn`",
@@ -346,11 +348,9 @@ impl Token<'_> {
             Token::False => "`false`",
             Token::Return => "`return`",
 
-            Token::TypInt => "`isize`",
+            Token::TypIsize => "`isize`",
             Token::TypI32 => "`i32`",
             Token::TypI64 => "`i64`",
-            Token::TypF32 => "`f32`",
-            Token::TypF64 => "`f64`",
             Token::TypBool => "`bool`",
             Token::TypNothing => "`Nothing`",
         }
@@ -360,7 +360,7 @@ impl Token<'_> {
 mod lexer_test {
     use super::*;
 
-    use crate::errors::syntax_error::SyntaxError;
+    use crate::errors::Error;
 
     use super::Token::{self, *};
 
@@ -376,7 +376,7 @@ mod lexer_test {
     #[test]
     fn simple_arithmetic() {
         let source = "1 + 2 - 3* 4/5+0*999";
-        let expected = &[Int("1"), Plus, Int("2"), Minus, Int("3"), Star, Int("4"), Slash, Int("5"), Plus, Int("0"), Star, Int("999")];
+        let expected = &[Isize("1"), Plus, Isize("2"), Minus, Isize("3"), Star, Isize("4"), Slash, Isize("5"), Plus, Isize("0"), Star, Isize("999")];
         simple_lexer_test(source, expected);
     }
 
@@ -394,16 +394,16 @@ mod lexer_test {
             Let,
             Identifier("a"),
             Assign,
-            Int("10"),
+            Isize("10"),
             Semicolon,
             Return,
             Star,
             Ampersand,
             Identifier("a"),
             Plus,
-            Int("10"),
+            Isize("10"),
             Plus,
-            Int("0"),
+            Isize("0"),
             Semicolon,
             Rbrace,
         ];
@@ -413,7 +413,7 @@ mod lexer_test {
     #[test]
     fn simple_property_access() {
         let source = "x.a.y*2u+0";
-        let expected = &[Identifier("x"), Dot, Identifier("a"), Dot, Identifier("y"), Star, Unsigned("2"), Plus, Int("0")];
+        let expected = &[Identifier("x"), Dot, Identifier("a"), Dot, Identifier("y"), Star, Usize("2"), Plus, Isize("0")];
         simple_lexer_test(source, expected);
     }
 
@@ -429,23 +429,23 @@ mod lexer_test {
     fn specified_integer_width() {
         let source = "10-1i32+10u+ 12i64* 10i+ 12333333u/10u32+ 1234u64+ 0u";
         let expected = &[
-            Int("10"),
+            Isize("10"),
             Minus,
-            Int32(1),
+            I32(1),
             Plus,
-            Unsigned("10"),
+            Usize("10"),
             Plus,
-            Int64(12),
+            I64(12),
             Star,
-            Int("10"),
+            Isize("10"),
             Plus,
-            Unsigned("12333333"),
+            Usize("12333333"),
             Slash,
-            Unsigned32(10),
+            U32(10),
             Plus,
-            Unsigned64(1234),
+            U64(1234),
             Plus,
-            Unsigned("0"),
+            Usize("0"),
         ];
         simple_lexer_test(source, expected);
     }
@@ -458,7 +458,7 @@ mod lexer_test {
 
         assert!(matches!(
             tokens.get(0),
-            Some(Err(SyntaxError { message, .. }))
+            Some(Err(Error { message, .. }))
                 if message == "malformed integer literal, number too large to fit in target type"
         ));
     }

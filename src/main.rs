@@ -1,7 +1,6 @@
 mod ast;
 mod errors;
 mod lexer;
-mod macros;
 mod parser;
 mod spanned;
 mod types;
@@ -10,53 +9,36 @@ mod types;
 use codespan_reporting::files::SimpleFiles;
 use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
+use errors::Error as VoltError;
 use std::error::Error;
 use std::fs;
 use std::process::exit;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let content = fs::read_to_string("example.vt")?;
-    let mut files = SimpleFiles::new();
-    let file_id = files.add("example.vt", &content);
+fn compile(file_id: usize, parser: parser::Parser) -> Result<(), VoltError> {
+    let program = parser.collect::<Result<Vec<_>, _>>()?;
+    let mut env = types::checker::TypeEnv::new(file_id);
+    env.check_block(&program, None).unwrap();
 
-    let writer = StandardStream::stderr(ColorChoice::Always);
-    let mut config = term::Config::default();
-    config.before_label_lines = 2;
-    config.after_label_lines = 1;
+    Ok(())
+}
+
+fn wrapped() -> Result<(), Box<dyn Error>> {
+    let content = fs::read_to_string("example.vt")?;
+
+    let file_id = errors::add_file("example.vt", content.clone());
 
     let mut lexer = lexer::Lexer::new(file_id, &content);
     let mut node_id_gen = ast::expressions::NodeIdGen::new();
     let parser = parser::Parser::new(&mut lexer, &mut node_id_gen);
 
-    let program: Result<Vec<_>, _> = parser.collect();
-    match program {
-        Ok(program) => {
-            let mut env = types::checker::TypeEnv::new(file_id);
-            if let Err(error) = env.check_block(&program, None) {
-                for err in error {
-                    dbg!(err);
-                }
-                exit(1);
-            }
-        }
-        Err(err) => {
-            term::emit(&mut writer.lock(), &config, &files, &err.diagnostic)?;
-            exit(1);
-        }
-    }
+    if let Err(err) = compile(file_id, parser) {
+        err.report();
+        exit(1);
+    };
 
-    // let mut parser = parser::Parser::new(&mut lexer);
-    // let program = parser.collect::<Result<Vec<_>, _>>()?;
-
-    //
-    // let mut env = TypeEnv::new(file_id);
-    // if let Err(error) = env.check_block(&program, None) {
-    //     for err in error {
-    //         let err: OpaqueError = err.clone().into();
-    //         term::emit(&mut writer.lock(), &config, &files, &err.diagnostic)?;
-    //     }
-    //     exit(1);
-    // }
-    //
     Ok(())
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    wrapped()
 }
