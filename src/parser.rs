@@ -109,6 +109,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         self.expect(Token::Lparen)?;
         let args = self.series_of(&Self::typed_identifier, Some(&Token::Comma), &Token::Rparen)?;
         self.expect(Token::Rparen)?;
+        self.expect(Token::Arrow)?;
         let return_type = self.type_expression()?;
 
         Ok(Statement::FunctionDeclaration(FunctionDeclaration { name, args, return_type }))
@@ -183,10 +184,15 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
     }
 
     fn _primary_expression(&mut self) -> Result<Node, Error> {
+        // Identifiers are parsed in a special way; they can be called, subscripted, etc.
+        match self.lexer.peek() {
+            Some(Ok((_, Token::Identifier(_), _))) => return self.identifier(),
+            _ => (),
+        };
+
         match self.lexer.next().ok_or_else(|| unexpected_eof!(self, expected "expression"))?? {
             (start, Token::Isize(value), end) => Ok((start, Expression::Int(value.to_string()), end)),
             (start, Token::I32(value), end) => Ok((start, Expression::Int32(value), end)),
-            (start, Token::Identifier(name), end) => Ok((start, Expression::Identifier(name.to_string()), end)),
             (_, Token::Lparen, _) => {
                 let expr = self.expression()?;
                 self.expect(Token::Rparen)?;
@@ -197,6 +203,32 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             }
         }
         .and_then(|expr| Ok(Node::new(self.node_id_gen, expr)))
+    }
+
+    fn identifier(&mut self) -> Result<Node, Error> {
+        let (start, ident, mut end) = self.expect_ident().unwrap();
+        let name = match ident {
+            Token::Identifier(name) => name.to_string(),
+            _ => unreachable!(),
+        };
+
+        let mut expr = Node::new(self.node_id_gen, (start, Expression::Identifier(name), end));
+
+        loop {
+            match self.lexer.peek().cloned() {
+                Some(Ok((start, Token::Lparen, _))) => {
+                    self.lexer.next();
+                    let args = self.series_of(&Self::expression, Some(&Token::Comma), &Token::Rparen)?;
+                    self.expect(Token::Rparen)?;
+                    end = args.last().map(|arg| arg.node.2).unwrap_or(end);
+                    expr = Node::new(self.node_id_gen, (start, Expression::Call { lhs: Box::new(expr), args }, end));
+                }
+                Some(Err(e)) => return Err(e.clone()),
+                _ => break,
+            }
+        }
+
+        Ok(expr)
     }
 
     fn type_expression(&mut self) -> Result<Node, Error> {

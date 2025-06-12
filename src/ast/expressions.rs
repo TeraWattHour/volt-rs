@@ -92,3 +92,13 @@ pub enum Op {
     LogicalOr,
     LogicalAnd,
 }
+
+#[macro_export]
+macro_rules! expr_ident {
+    ($expr:expr) => {
+        match $expr {
+            Expression::Identifier(name) => name.to_string(),
+            _ => unreachable!(),
+        }
+    };
+}

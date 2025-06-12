@@ -463,3 +463,13 @@ mod lexer_test {
         ));
     }
 }
+
+#[macro_export]
+macro_rules! identifier {
+    ($token:expr) => {
+        match $token {
+            Token::Identifier(name) => name.to_string(),
+            _ => unreachable!(),
+        }
+    };
+}
