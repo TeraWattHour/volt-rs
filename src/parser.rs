@@ -33,7 +33,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
     fn top_level_statement(&mut self) -> Result<Statement<'a>, Error> {
         match self.lexer.peek().cloned().ok_or_else(|| unexpected_eof!(self, expected "function declaration or function definition"))?? {
             (_, Token::Declare, _) => self.function_declaration(),
-            (_, Token::Fn, _) => self.function(),
+            (_, Token::Fn, _) => self.function_definition(),
             (start, token, end) => Err(Error::generic(
                 self.file_id,
                 format!("Unexpected token {} – expected function or function declaration", token.display()),
@@ -114,7 +114,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         Ok(Statement::FunctionDeclaration(FunctionDeclaration { name, args, return_type }))
     }
 
-    fn function(&mut self) -> Result<Statement<'a>, Error> {
+    fn function_definition(&mut self) -> Result<Statement<'a>, Error> {
         self.expect(Token::Fn)?;
         let name = self.expect_ident()?;
         self.expect(Token::Lparen)?;
@@ -152,8 +152,12 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         };
 
         while let Some(Ok((_, token, _))) = self.lexer.peek() {
-            let token_precedence = get_precedence(token);
-            if token_precedence <= precedence {
+            let (token_precedence, assoc) = get_precedence(token);
+            let continue_parsing = match assoc {
+                Assoc::Left => token_precedence > precedence,
+                Assoc::Right => token_precedence >= precedence,
+            };
+            if !continue_parsing {
                 break;
             }
 
@@ -290,18 +294,26 @@ impl<'a, 'b, 'c> Iterator for Parser<'a, 'b, 'c> {
     }
 }
 
-fn get_precedence(token: &Token) -> u8 {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Assoc {
+    Left,
+    Right,
+}
+
+fn get_precedence(token: &Token) -> (u8, Assoc) {
     match token {
-        Token::Eq | Token::Neq => 1,
-        Token::Gt | Token::Lt | Token::Gte | Token::Lte => 2,
-        Token::Plus | Token::Minus => 3,
-        Token::Star | Token::Slash => 4,
-        _ => 0,
+        Token::Assign => (1, Assoc::Right),
+        Token::Eq | Token::Neq => (2, Assoc::Left),
+        Token::Gt | Token::Lt | Token::Gte | Token::Lte => (3, Assoc::Left),
+        Token::Plus | Token::Minus => (3, Assoc::Left),
+        Token::Star | Token::Slash => (4, Assoc::Left),
+        _ => (0, Assoc::Left),
     }
 }
 
 fn token_to_op(token: &Token) -> Option<Op> {
     match token {
+        Token::Assign => Some(Op::Assign),
         Token::Plus => Some(Op::Plus),
         Token::Minus => Some(Op::Minus),
         Token::Star => Some(Op::Asterisk),
