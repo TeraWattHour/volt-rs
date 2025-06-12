@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use crate::{
     ast::{
         expressions::{Expression, Node, Op},
-        statements::{FunctionDefinition, If, Statement},
+        statements::{FunctionDeclaration, FunctionDefinition, If, Statement},
     },
     errors::Error,
+    identifier,
     lexer::Token,
     spanned::span,
     types::typ::Type,
@@ -21,7 +22,9 @@ pub fn check_file<'a>(file_id: usize, program: &Vec<Statement<'a>>) -> Result<()
     let functions = program
         .iter()
         .filter_map(|stmt| match stmt {
-            Statement::Function(fn_definition) => Some(function_type(fn_definition).map(|ty| (fn_definition.name(), ty))),
+            Statement::Function(FunctionDefinition { name, .. }) | Statement::FunctionDeclaration(FunctionDeclaration { name, .. }) => {
+                Some(function_type(stmt).map(|ty| (identifier!(name.1), ty)))
+            }
             _ => None,
         })
         .collect::<Result<HashMap<_, _>, _>>()?;
@@ -29,7 +32,7 @@ pub fn check_file<'a>(file_id: usize, program: &Vec<Statement<'a>>) -> Result<()
     for stmt in program {
         match stmt {
             Statement::Function(fn_definition) => {
-                let mut fn_scope = VarScope::new(file_id, Some(Type::type_of_node(&fn_definition.return_type)));
+                let mut fn_scope = VarScope::new(file_id, functions.clone(), Some(Type::type_of_node(&fn_definition.return_type)));
                 for (ident, typ) in &fn_definition.args {
                     fn_scope.insert_identifier(&ident, Type::type_of_node(&typ));
                 }
@@ -38,11 +41,10 @@ pub fn check_file<'a>(file_id: usize, program: &Vec<Statement<'a>>) -> Result<()
                     return Err(Error::generic(file_id, "function does not always return", span(&fn_definition.name)));
                 }
             }
+            Statement::FunctionDeclaration(_) => {}
             _ => unreachable!(),
         }
     }
-
-    dbg!(functions);
 
     Ok(())
 }
@@ -51,12 +53,13 @@ pub fn check_file<'a>(file_id: usize, program: &Vec<Statement<'a>>) -> Result<()
 struct VarScope {
     file_id: usize,
     variables: HashMap<String, Type>,
+    functions: HashMap<String, Type>,
     expected_return: Option<Type>,
 }
 
 impl VarScope {
-    pub fn new(file_id: usize, expected_return: Option<Type>) -> Self {
-        Self { file_id, variables: HashMap::new(), expected_return }
+    pub fn new(file_id: usize, functions: HashMap<String, Type>, expected_return: Option<Type>) -> Self {
+        Self { file_id, variables: HashMap::new(), functions, expected_return }
     }
 
     pub fn insert_identifier(&mut self, ident: &Token, typ: Type) {
@@ -70,7 +73,7 @@ impl VarScope {
     }
 
     pub fn lookup(&self, ident: &String) -> Option<Type> {
-        self.variables.get(ident).cloned()
+        self.variables.get(ident).cloned().or_else(|| self.functions.get(ident).cloned())
     }
 
     pub fn inherit(&self) -> Self {
@@ -255,11 +258,17 @@ fn does_statement_always_return(stmt: &Statement) -> bool {
     }
 }
 
-fn function_type(stmt: &FunctionDefinition) -> Result<Type, Error> {
-    let argument_types = stmt.args.iter().map(|(_, typ)| Type::type_of_node(typ)).collect();
-    let return_type = Type::type_of_node(&stmt.return_type);
+fn function_type(stmt: &Statement) -> Result<Type, Error> {
+    match stmt {
+        Statement::Function(FunctionDefinition { name, args, return_type, .. })
+        | Statement::FunctionDeclaration(FunctionDeclaration { name, args, return_type, .. }) => {
+            let argument_types = args.iter().map(|(_, typ)| Type::type_of_node(typ)).collect();
+            let return_type = Type::type_of_node(&return_type);
 
-    Ok(Type::Function { args: argument_types, returned: Box::new(return_type) })
+            Ok(Type::Function { args: argument_types, returned: Box::new(return_type) })
+        }
+        _ => unreachable!(),
+    }
 }
 
 // #[cfg(test)]

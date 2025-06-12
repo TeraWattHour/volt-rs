@@ -4,6 +4,7 @@ use crate::{
         statements::{FunctionDefinition, Statement},
     },
     errors::Error,
+    expr_ident, identifier,
     lexer::Token,
     types::typ::Type,
 };
@@ -11,6 +12,7 @@ use crate::{
 pub fn compile_file(program: &Vec<Statement>) -> Result<(), Error> {
     for stmt in program {
         match stmt {
+            Statement::FunctionDeclaration(_) => (),
             Statement::Function(stmt) => compile_function(stmt)?,
             _ => unreachable!(),
         }
@@ -19,8 +21,11 @@ pub fn compile_file(program: &Vec<Statement>) -> Result<(), Error> {
 }
 
 fn compile_function(function: &FunctionDefinition) -> Result<(), Error> {
+    if identifier!(function.name.1) == "main" {
+        eprint!("export ");
+    }
     eprint!(
-        "function {} {}(",
+        "function {} ${}(",
         Type::type_of_node(&function.return_type).into_qbe_repr(),
         match function.name.1 {
             Token::Identifier(name) => name.to_string(),
@@ -84,10 +89,24 @@ fn compile_expression(node: &Node) -> Result<String, Error> {
             _ => unimplemented!(),
         },
         Expression::Int(i) => {
-            eprintln!("  {id} =l {i}");
+            eprintln!("  {id} =l copy {i}");
         }
         Expression::Identifier(name) => {
             eprintln!("  {id} =l loadl %{name}");
+        }
+        Expression::Call { lhs, args } => {
+            // TODO only identifiers can be called as of now
+            let name = expr_ident!(&lhs.node.1);
+
+            let arg_ids = args
+                .iter()
+                .map(|arg| compile_expression(arg).map(|id| (arg, id)))
+                .collect::<Result<Vec<_>, _>>()?
+                .iter()
+                .map(|(arg, id)| format!("{} {id}", arg.typ.borrow().as_ref().unwrap().into_qbe_repr()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            eprintln!("  {id} =l ${name}({arg_ids})")
         }
         _ => unimplemented!("compilation of {:?} is unimplemented", node.node.1),
     }

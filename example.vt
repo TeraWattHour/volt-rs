@@ -1,8 +1,5 @@
-fn main() -> int {
-  return 1 * 1;
-}
+declare fn putchar(i: int) -> int
 
-fn multiply(a: int, b: int) -> int {
-  if a > b { return 0; }
-  else { return 10; }
+fn main() -> int {
+  return putchar(50);
 }
