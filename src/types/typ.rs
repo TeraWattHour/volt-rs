@@ -21,6 +21,18 @@ pub enum Type {
 }
 
 impl Type {
+    pub fn into_qbe_repr(&self) -> &'static str {
+        match self {
+            Self::Int => "l",
+            Self::Int64 => "l",
+            Self::Int32 => "w",
+            Self::Float32 => "s",
+            Self::Float64 => "d",
+            Self::Address(_) => "l",
+            _ => unimplemented!(),
+        }
+    }
+
     // pub fn basic_type<'a>(&self, ctx: &'a Context) -> BasicTypeEnum<'a> {
     //     self.try_basic_type(ctx).unwrap()
     // }

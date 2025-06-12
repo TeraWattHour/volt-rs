@@ -1,23 +1,25 @@
 mod ast;
+mod compiler;
 mod errors;
 mod lexer;
 mod parser;
 mod spanned;
 mod types;
 
-// use crate::types::checker::TypeEnv;
-use codespan_reporting::files::SimpleFiles;
-use codespan_reporting::term;
-use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
 use errors::Error as VoltError;
 use std::error::Error;
 use std::fs;
 use std::process::exit;
 
+use crate::compiler::compile_file;
+use crate::types::checker::check_file;
+
 fn compile(file_id: usize, parser: parser::Parser) -> Result<(), VoltError> {
     let program = parser.collect::<Result<Vec<_>, _>>()?;
-    let mut env = types::checker::TypeEnv::new(file_id);
-    env.check_block(&program, None).unwrap();
+    check_file(file_id, &program)?;
+    compile_file(&program)?;
+    // let mut env = types::checker::TypeEnv::new(file_id);
+    // env.check_block(&program, None).unwrap();
 
     Ok(())
 }
