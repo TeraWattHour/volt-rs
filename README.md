@@ -1,5 +1,5 @@
 ## Volt
-An imperative language made with Rust and LLVM. This is a toy project to explore the LLVM bindings for Rust (inkwell package).
+An imperative language made with Rust and QBE.
 
 
 ### Example code
