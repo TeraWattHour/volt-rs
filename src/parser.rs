@@ -1,5 +1,5 @@
 use crate::ast::expressions::{Expression, Node, NodeIdGen, Op};
-use crate::ast::statements::{FunctionDeclaration, FunctionDefinition, If, Let};
+use crate::ast::statements::{FunctionDeclaration, FunctionDefinition, If, Let, ReturnStatement};
 use crate::errors::Error;
 use crate::spanned::Spanned;
 use crate::types::typ::Type;
@@ -89,16 +89,16 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
     }
 
     fn return_(&mut self) -> Result<Statement<'a>, Error> {
-        self.expect(Token::Return)?;
+        let (start, _, end) = self.expect(Token::Return)?;
 
-        let matched = match self.lexer.peek().cloned().ok_or_else(|| unexpected_eof!(self, expected "`;` or an expression"))?? {
-            (_, Token::Semicolon, _) => Ok(Statement::Return(None)),
-            _ => Ok(Statement::Return(Some(self.expression()?))),
+        let returning = match self.lexer.peek().cloned().ok_or_else(|| unexpected_eof!(self, expected "`;` or an expression"))?? {
+            (_, Token::Semicolon, _) => None,
+            _ => Some(self.expression()?),
         };
 
         self.expect(Token::Semicolon)?;
 
-        matched
+        Ok(Statement::Return(ReturnStatement { end: returning.as_ref().map(|n| n.node.2).unwrap_or(end), returned_value: returning, start }))
     }
 
     fn function_declaration(&mut self) -> Result<Statement<'a>, Error> {
@@ -207,6 +207,10 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             (start, Token::Isize(value), end) => Ok((start, Expression::Int(value.to_string()), end)),
             (start, Token::I32(value), end) => Ok((start, Expression::Int32(value), end)),
             (start, Token::String(content), end) => Ok((start, Expression::String(content.to_string()), end)),
+
+            (start, Token::True, end) => Ok((start, Expression::Boolean(true), end)),
+            (start, Token::False, end) => Ok((start, Expression::Boolean(false), end)),
+
             (_, Token::Lparen, _) => {
                 let expr = self.expression()?;
                 self.expect(Token::Rparen)?;
@@ -242,8 +246,8 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
     }
 
     fn type_expression(&mut self) -> Result<Node, Error> {
-        if let Some(Ok((start, Token::Star, _))) = self.lexer.peek() {
-            let (start, _, end) = self.lexer.next().unwrap().unwrap();
+        if let Some(Ok((_, Token::Star, _))) = self.lexer.peek() {
+            let (start, _, _) = self.lexer.next().unwrap().unwrap();
             let inner = self.type_expression()?;
             let inner_type = match inner.node.1 {
                 Expression::Type(typ) => typ,
@@ -257,6 +261,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
             (start, Token::TypIsize, end) => (start, Type::Int, end),
             (start, Token::TypI32, end) => (start, Type::Int32, end),
             (start, Token::TypU8, end) => (start, Type::U8, end),
+            (start, Token::TypBool, end) => (start, Type::Bool, end),
 
             (start, token, end) => {
                 return Err(Error::generic(self.file_id, format!("Unexpected token {} – expected a type expression", token.display()), start..end))

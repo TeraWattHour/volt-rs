@@ -22,6 +22,12 @@ impl std::fmt::Display for Error {
     }
 }
 
+impl From<std::io::Error> for Error {
+    fn from(value: std::io::Error) -> Self {
+        Self { message: value.to_string(), diagnostic: Diagnostic::bug().with_message(value.to_string()) }
+    }
+}
+
 impl std::error::Error for Error {
     fn description(&self) -> &str {
         &self.message

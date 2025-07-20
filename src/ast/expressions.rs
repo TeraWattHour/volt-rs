@@ -93,6 +93,36 @@ pub enum Op {
     LogicalAnd,
 }
 
+impl std::fmt::Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Op::AddressOf => write!(f, "&"),
+            Op::Dereference => write!(f, "*"),
+            Op::Not => write!(f, "!"),
+            Op::Negate => write!(f, "-"),
+            Op::Plus => write!(f, "+"),
+            Op::Minus => write!(f, "-"),
+            Op::Asterisk => write!(f, "*"),
+            Op::Slash => write!(f, "/"),
+            Op::Modulo => write!(f, "%"),
+            Op::Lte => write!(f, "<="),
+            Op::Lt => write!(f, "<"),
+            Op::Gte => write!(f, ">="),
+            Op::Gt => write!(f, ">"),
+            Op::Neq => write!(f, "!="),
+            Op::Eq => write!(f, "=="),
+            Op::Assign => write!(f, "="),
+            Op::PlusAssign => write!(f, "+="),
+            Op::MinusAssign => write!(f, "-="),
+            Op::AsteriskAssign => write!(f, "*="),
+            Op::SlashAssign => write!(f, "/="),
+            Op::ModuloAssign => write!(f, "%="),
+            Op::LogicalOr => write!(f, "||"),
+            Op::LogicalAnd => write!(f, "&&"),
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! expr_ident {
     ($expr:expr) => {

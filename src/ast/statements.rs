@@ -1,5 +1,4 @@
 use crate::ast::expressions::Node;
-use crate::lexer::Token;
 use crate::spanned::Spanned;
 
 #[derive(Debug, Clone)]
@@ -10,7 +9,7 @@ pub enum Statement<'a> {
     Block(Vec<Statement<'a>>),
     Function(FunctionDefinition<'a>),
     FunctionDeclaration(FunctionDeclaration<'a>),
-    Return(Option<Node>),
+    Return(ReturnStatement),
 }
 
 #[derive(Debug, Clone)]
@@ -39,4 +38,11 @@ pub struct FunctionDeclaration<'a> {
     pub name: Spanned<&'a str>,
     pub args: Vec<(Spanned<&'a str>, Node)>,
     pub return_type: Option<Node>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReturnStatement {
+    pub returned_value: Option<Node>,
+    pub start: usize,
+    pub end: usize,
 }

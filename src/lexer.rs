@@ -228,11 +228,6 @@ impl<'a> Lexer<'a> {
     fn identifier(&mut self) -> Result<Token<'a>, Error> {
         let start = chop_while!(self, |c| char::is_ascii_alphanumeric(&c) || c == '_');
 
-        // identifiers can be suffixed by `?` to denote booleaness
-        if self.current_char() == Some('?') {
-            self.advance();
-        }
-
         let identifier = &self.source[start..self.position];
 
         let token = if let Some(token) = KEYWORDS.get(identifier) { token.clone() } else { Token::Identifier(identifier) };

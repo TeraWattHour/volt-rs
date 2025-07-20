@@ -1,0 +1,23 @@
+declare fn putchar(ch: int)
+declare fn printf(pattern: *u8)
+
+fn main() -> int {
+  let should_print = true;
+  let a = 20;
+  if "a" > 10 {
+    hello();
+  }
+
+  if greater_than_ten(10) {
+    hello();
+  }
+  return 0;
+}
+
+fn greater_than_ten(a: int) -> bool {
+  return a > 10;
+}
+
+fn hello() {
+  printf("hello from function hello");
+} 

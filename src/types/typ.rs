@@ -31,6 +31,7 @@ impl Type {
             Self::Float32 => "s",
             Self::Float64 => "d",
             Self::Nothing => "w",
+            Self::Bool => "w",
 
             // strings are referred to as pointers to the first characters of a sequence, as they don't have a separate type in qbe
             Self::Pointer(_) | Self::String => "l",
@@ -38,50 +39,6 @@ impl Type {
             typ => unimplemented!("{}", typ),
         }
     }
-
-    // pub fn returnable_as(&self, other: &Type) -> bool {}
-
-    // pub fn basic_type<'a>(&self, ctx: &'a Context) -> BasicTypeEnum<'a> {
-    //     self.try_basic_type(ctx).unwrap()
-    // }
-
-    // pub fn try_basic_type<'a>(&self, ctx: &'a Context) -> Result<BasicTypeEnum<'a>, String> {
-    //     match self {
-    //         Type::Int => Ok(ctx.i64_type().into()),
-    //         Type::Int64 => Ok(ctx.i64_type().into()),
-    //         Type::Int32 => Ok(ctx.i32_type().into()),
-    //         Type::Float64 => Ok(ctx.f64_type().into()),
-    //         Type::Float32 => Ok(ctx.f32_type().into()),
-    //         Type::Bool => Ok(ctx.bool_type().into()),
-    //         Type::Address(_) => Ok(ctx.ptr_type(AddressSpace::default()).into()),
-    //         _ => Err(format!("Cannot convert type `{}` to basic type", self)),
-    //     }
-    // }
-
-    // pub fn any_type<'a>(&self, ctx: &'a Context) -> AnyTypeEnum<'a> {
-    //     match self {
-    //         Type::Nothing => ctx.void_type().into(),
-    //         _ => self.basic_type(ctx).as_any_type_enum(),
-    //     }
-    // }
-
-    // pub fn fn_type<'a>(
-    //     &self,
-    //     ctx: &'a Context,
-    //     args: &[BasicMetadataTypeEnum<'a>],
-    // ) -> FunctionType<'a> {
-    //     match self {
-    //         Type::Int => ctx.i64_type().fn_type(args, false),
-    //         Type::Int64 => ctx.i64_type().fn_type(args, false),
-    //         Type::Int32 => ctx.i32_type().fn_type(args, false),
-    //         Type::Float64 => ctx.f64_type().fn_type(args, false),
-    //         Type::Float32 => ctx.f32_type().fn_type(args, false),
-    //         Type::Bool => ctx.bool_type().fn_type(args, false),
-    //         Type::Nothing => ctx.void_type().fn_type(args, false),
-    //         Type::Address(_) => ctx.ptr_type(AddressSpace::default()).fn_type(args, false),
-    //         _ => unreachable!(),
-    //     }
-    // }
 }
 
 impl Type {
@@ -114,8 +71,13 @@ impl std::fmt::Display for Type {
                 write!(f, "({}) -> {}", args_str, returned)
             }
             Type::String => write!(f, "string"),
-            Type::Pointer(t) => write!(f, "&{}", t),
+            Type::Pointer(t) => write!(f, "*{}", t),
             Type::Nothing => write!(f, "Nothing"),
         }
     }
+}
+
+pub struct StructDefinition {
+    pub name: String,
+    pub fields: Vec<(String, Type)>,
 }

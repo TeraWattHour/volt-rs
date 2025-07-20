@@ -5,3 +5,4 @@
 .idea
 *.ll
 .DS_Store
+out

@@ -3,13 +3,11 @@ use std::collections::HashMap;
 use crate::{
     ast::{
         expressions::{Expression, Node, Op},
-        statements::{FunctionDeclaration, FunctionDefinition, If, Statement},
+        statements::{FunctionDeclaration, FunctionDefinition, If, ReturnStatement, Statement},
     },
     errors::Error,
-    identifier,
-    lexer::Token,
     spanned::span,
-    types::typ::Type,
+    types::typ::{StructDefinition, Type},
 };
 
 macro_rules! numeric {
@@ -19,7 +17,7 @@ macro_rules! numeric {
 }
 
 pub fn check_file<'a>(file_id: usize, program: &Vec<Statement<'a>>) -> Result<(), Error> {
-    let functions = collect_functions(program)?;
+    let functions = collect_functions(file_id, program)?;
 
     for stmt in program {
         match stmt {
@@ -41,12 +39,16 @@ pub fn check_file<'a>(file_id: usize, program: &Vec<Statement<'a>>) -> Result<()
     Ok(())
 }
 
-fn collect_functions<'a>(block: &Vec<Statement<'a>>) -> Result<HashMap<String, Type>, Error> {
+fn collect_functions<'a>(file_id: usize, block: &Vec<Statement<'a>>) -> Result<HashMap<String, Type>, Error> {
     let mut functions = HashMap::new();
 
     for statement in block {
         match statement {
             Statement::Function(FunctionDefinition { name, .. }) | Statement::FunctionDeclaration(FunctionDeclaration { name, .. }) => {
+                if functions.get(&name.1.to_string()).is_some() {
+                    return Err(Error::generic(file_id, "function with the same name already declared", span(name)));
+                }
+
                 functions.insert(name.1.to_string(), function_type(statement)?);
             }
             _ => {}
@@ -54,6 +56,10 @@ fn collect_functions<'a>(block: &Vec<Statement<'a>>) -> Result<HashMap<String, T
     }
 
     Ok(functions)
+}
+
+struct FileContext {
+    pub struct_table: HashMap<String, StructDefinition>,
 }
 
 #[derive(Clone)]
@@ -98,10 +104,6 @@ fn check(stmt: &Statement, scope: &mut VarScope) -> Result<(), Error> {
             let name = stmt.name.1;
             let rhs_typ = mark_expression(&stmt.value, scope)?;
 
-            if name.ends_with("?") && rhs_typ != Type::Bool {
-                return Err(Error::generic(scope.file_id, "identifier with a `?` suffix must be of type `bool`", span(&stmt.name)));
-            }
-
             scope.insert(name, rhs_typ);
             Ok(())
         }
@@ -127,33 +129,22 @@ fn check(stmt: &Statement, scope: &mut VarScope) -> Result<(), Error> {
 
             Ok(())
         }
-        Statement::Return(returned) => {
-            let returned_type = match returned {
+        Statement::Return(ReturnStatement { returned_value, start, end }) => {
+            let returned_type = match returned_value {
                 Some(returned) => mark_expression(returned, scope)?,
                 None => Type::Nothing,
             };
 
-            match &scope.expected_return {
-                Some(expected_type) => {
-                    if &returned_type != expected_type {
-                        // return Err(vec![TypeError::WrongReturnType {
-                        //     returned_by: stmt,
-                        //     returned_type,
-                        //     expected_by: Some(expected_by),
-                        //     expected_type: expected_type.clone(),
-                        // }]);
-                    }
-                }
-                None => {
-                    unimplemented!("wrong return type");
-                    // return Err(vec![TypeError::WrongReturnType {
-                    //     returned_by: stmt,
-                    //     returned_type,
-                    //     expected_by: None,
-                    //     expected_type: Type::Nothing,
-                    // }])
-                }
+            let expected_type = scope.expected_return.as_ref().unwrap_or(&Type::Nothing);
+
+            if &returned_type != expected_type {
+                return Err(Error::generic(
+                    scope.file_id,
+                    format!("function returns incorrect type; expected `{}`, got `{}`", expected_type, returned_type),
+                    *start..*end,
+                ));
             }
+
             Ok(())
         }
         _ => unreachable!(),
@@ -199,7 +190,13 @@ fn _check_expression(node: &Node, scope: &VarScope) -> Result<Type, Error> {
                     left_type.clone()
                 }
                 (_, Op::Assign, _) if &left_type == &right_type => left_type.clone(),
-                _ => return Err(unimplemented!("bang ding ow :(")),
+                _ => {
+                    return Err(Error::generic(
+                        scope.file_id,
+                        format!("expected both types to be the same, got: {left_type} {op} {right_type}"),
+                        span(&node.node),
+                    ))
+                }
             })
         }
         Expression::Call { lhs, args } => {
@@ -208,8 +205,7 @@ fn _check_expression(node: &Node, scope: &VarScope) -> Result<Type, Error> {
                 _ => todo!("methods are not supported yet"),
             };
             let Some(Type::Function { args: expected_args, returned }) = scope.lookup(&name) else {
-                unimplemented!("cannot call");
-                // return Err(OpaqueError::cannot_call(file_id, lhs));
+                return Err(Error::generic(scope.file_id, format!("function `{name}` is undefined"), span(&lhs.node)));
             };
             if args.len() != expected_args.len() {
                 unimplemented!("wrong argument count");
