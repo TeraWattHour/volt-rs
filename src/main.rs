@@ -11,13 +11,15 @@ use std::error::Error;
 use std::fs;
 use std::process::exit;
 
-use crate::compiler::compile_file;
+use crate::compiler::{compile_file, Compiler};
 use crate::types::checker::check_file;
 
 fn compile(file_id: usize, parser: parser::Parser) -> Result<(), VoltError> {
     let program = parser.collect::<Result<Vec<_>, _>>()?;
     check_file(file_id, &program)?;
-    compile_file(&program)?;
+    let mut compiler = Compiler::new();
+    compile_file(&program, &mut compiler)?;
+    println!("{}", compiler.to_string().unwrap());
     // let mut env = types::checker::TypeEnv::new(file_id);
     // env.check_block(&program, None).unwrap();
 

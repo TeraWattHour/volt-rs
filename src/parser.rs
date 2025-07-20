@@ -62,7 +62,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
 
     fn let_(&mut self) -> Result<Statement<'a>, Error> {
         self.expect(Token::Let)?;
-        let name = self.expect_ident()?;
+        let name = self.expect_ident_str()?;
         self.expect(Token::Assign)?;
         let value = self.expression()?;
         self.expect(Token::Semicolon)?;
@@ -105,24 +105,37 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         self.expect(Token::Declare)?;
         self.expect(Token::Fn)?;
 
-        let name = self.expect_ident()?;
+        let name = self.expect_ident_str()?;
         self.expect(Token::Lparen)?;
         let args = self.series_of(&Self::typed_identifier, Some(&Token::Comma), &Token::Rparen)?;
         self.expect(Token::Rparen)?;
-        self.expect(Token::Arrow)?;
-        let return_type = self.type_expression()?;
+
+        let return_type = match self.lexer.peek().cloned().ok_or_else(|| unexpected_eof!(self, expected "`->`"))?? {
+            (_, Token::Arrow, _) => {
+                self.lexer.next();
+                Some(self.type_expression()?)
+            }
+            _ => None,
+        };
 
         Ok(Statement::FunctionDeclaration(FunctionDeclaration { name, args, return_type }))
     }
 
     fn function_definition(&mut self) -> Result<Statement<'a>, Error> {
         self.expect(Token::Fn)?;
-        let name = self.expect_ident()?;
+        let name = self.expect_ident_str()?;
         self.expect(Token::Lparen)?;
         let args = self.series_of(&Self::typed_identifier, Some(&Token::Comma), &Token::Rparen)?;
         self.expect(Token::Rparen)?;
-        self.expect(Token::Arrow)?;
-        let return_type = self.type_expression()?;
+
+        let return_type = match self.lexer.peek().cloned().ok_or_else(|| unexpected_eof!(self, expected "`->` or `{`"))?? {
+            (_, Token::Arrow, _) => {
+                self.lexer.next();
+                Some(self.type_expression()?)
+            }
+            (_, Token::Lbrace, _) => None,
+            (start, _, end) => return Err(Error::generic(self.file_id, "expected `->`", start..end)),
+        };
 
         let body = self.block()?;
 
@@ -193,6 +206,7 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         match self.lexer.next().ok_or_else(|| unexpected_eof!(self, expected "expression"))?? {
             (start, Token::Isize(value), end) => Ok((start, Expression::Int(value.to_string()), end)),
             (start, Token::I32(value), end) => Ok((start, Expression::Int32(value), end)),
+            (start, Token::String(content), end) => Ok((start, Expression::String(content.to_string()), end)),
             (_, Token::Lparen, _) => {
                 let expr = self.expression()?;
                 self.expect(Token::Rparen)?;
@@ -206,13 +220,9 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
     }
 
     fn identifier(&mut self) -> Result<Node, Error> {
-        let (start, ident, mut end) = self.expect_ident().unwrap();
-        let name = match ident {
-            Token::Identifier(name) => name.to_string(),
-            _ => unreachable!(),
-        };
+        let (start, name, mut end) = self.expect_ident_str()?;
 
-        let mut expr = Node::new(self.node_id_gen, (start, Expression::Identifier(name), end));
+        let mut expr = Node::new(self.node_id_gen, (start, Expression::Identifier(name.to_string()), end));
 
         loop {
             match self.lexer.peek().cloned() {
@@ -232,10 +242,21 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
     }
 
     fn type_expression(&mut self) -> Result<Node, Error> {
+        if let Some(Ok((start, Token::Star, _))) = self.lexer.peek() {
+            let (start, _, end) = self.lexer.next().unwrap().unwrap();
+            let inner = self.type_expression()?;
+            let inner_type = match inner.node.1 {
+                Expression::Type(typ) => typ,
+                _ => unreachable!(),
+            };
+            let end = inner.node.2;
+            return Ok(Node::new(self.node_id_gen, (start, Expression::Type(Type::Pointer(Box::new(inner_type))), end)));
+        }
+
         let (start, typ, end) = match self.lexer.next().unwrap().unwrap() {
             (start, Token::TypIsize, end) => (start, Type::Int, end),
             (start, Token::TypI32, end) => (start, Type::Int32, end),
-            (start, Token::TypNothing, end) => (start, Type::Nothing, end),
+            (start, Token::TypU8, end) => (start, Type::U8, end),
 
             (start, token, end) => {
                 return Err(Error::generic(self.file_id, format!("Unexpected token {} – expected a type expression", token.display()), start..end))
@@ -244,8 +265,8 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
         Ok(Node::new(self.node_id_gen, (start, Expression::Type(typ), end)))
     }
 
-    fn typed_identifier(&mut self) -> Result<(Token<'a>, Node), Error> {
-        let (_, ident, _) = self.expect_ident()?;
+    fn typed_identifier(&mut self) -> Result<(Spanned<&'a str>, Node), Error> {
+        let ident = self.expect_ident_str()?;
         self.expect(Token::Colon)?;
         let typ = self.type_expression()?;
         Ok((ident, typ))
@@ -295,6 +316,11 @@ impl<'a, 'b, 'c> Parser<'a, 'b, 'c> {
                 Err(Error::generic(self.file_id, format!("Unexpected token {} – expected identifier", received.display()), consumed.0..consumed.2))
             }
         }
+    }
+
+    fn expect_ident_str(&mut self) -> Result<Spanned<&'a str>, Error> {
+        let (start, name, end) = self.expect_ident()?;
+        Ok((start, name.as_str(), end))
     }
 
     /// **WARNING**: Only use with tokens that are expected to match with PartialEq.

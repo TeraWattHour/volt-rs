@@ -16,6 +16,7 @@ pub struct Lexer<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token<'a> {
     Identifier(&'a str),
+    String(&'a str),
 
     Isize(&'a str),
     I32(i32),
@@ -75,10 +76,19 @@ pub enum Token<'a> {
 
     // Reserved types
     TypIsize,
+    TypU8,
     TypI32,
     TypI64,
     TypBool,
-    TypNothing,
+}
+
+impl<'a> Token<'a> {
+    pub fn as_str(&self) -> &'a str {
+        match self {
+            Token::Identifier(content) => content,
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[macro_export]
@@ -103,10 +113,10 @@ lazy_static! {
             ("false", Token::False),
             ("return", Token::Return),
             ("int", Token::TypIsize),
+            ("u8", Token::TypU8),
             ("i32", Token::TypI32),
             ("i64", Token::TypI64),
             ("bool", Token::TypBool),
-            ("Nothing", Token::TypNothing),
         ])
     };
 }
@@ -187,13 +197,7 @@ impl<'a> Lexer<'a> {
             ':' => pat!(self, Token::Colon),
             '*' => pat!(self, Token::Star),
             '/' => pat!(self, Token::Slash),
-            'A'..='Z' | 'a'..='z' | '_' => {
-                let start = chop_while!(self, |c| char::is_ascii_alphanumeric(&c) || c == '_');
-                let identifier = &self.source[start..self.position];
-
-                let token = if let Some(token) = KEYWORDS.get(identifier) { token.clone() } else { Token::Identifier(identifier) };
-                Some(Ok(token))
-            }
+            'A'..='Z' | 'a'..='z' | '_' => Some(self.identifier()),
             '1'..='9' => Some(self.decimal_integer()),
             '0' => match self.peek_char() {
                 Some('.') => unimplemented!("floating point literals not implemented yet"),
@@ -204,6 +208,7 @@ impl<'a> Lexer<'a> {
                 Some('0'..='9') => unimplemented!("floating point literals not implemented yet"),
                 _ => pat!(self, Token::Dot),
             },
+            '"' => Some(self.string()),
             _ => unimplemented!("lexing for character {} not implemented yet", c),
         }
     }
@@ -218,6 +223,27 @@ impl<'a> Lexer<'a> {
 
     fn peek_char(&self) -> Option<char> {
         self.source[self.position + 1..].chars().next()
+    }
+
+    fn identifier(&mut self) -> Result<Token<'a>, Error> {
+        let start = chop_while!(self, |c| char::is_ascii_alphanumeric(&c) || c == '_');
+
+        // identifiers can be suffixed by `?` to denote booleaness
+        if self.current_char() == Some('?') {
+            self.advance();
+        }
+
+        let identifier = &self.source[start..self.position];
+
+        let token = if let Some(token) = KEYWORDS.get(identifier) { token.clone() } else { Token::Identifier(identifier) };
+        Ok(token)
+    }
+
+    fn string(&mut self) -> Result<Token<'a>, Error> {
+        self.advance();
+        let start = chop_while!(self, |c| c != '"');
+        self.advance();
+        Ok(Token::String(&self.source[start..self.position - 1]))
     }
 
     fn decimal_integer(&mut self) -> Result<Token<'a>, Error> {
@@ -305,9 +331,11 @@ impl<'a> Iterator for Lexer<'a> {
 impl Token<'_> {
     pub fn display(&self) -> &'static str {
         match self {
+            Token::String(_) => "string",
             Token::Identifier(_) => "identifier",
             Token::Isize(_) => "integer",
             Token::Usize(_) => "unsigned integer",
+
             Token::I64(_) => "64-bit integer",
             Token::I32(_) => "32-bit integer",
             Token::U64(_) => "64-bit unsigned integer",
@@ -348,11 +376,11 @@ impl Token<'_> {
             Token::False => "`false`",
             Token::Return => "`return`",
 
+            Token::TypU8 => "`u8`",
             Token::TypIsize => "`isize`",
             Token::TypI32 => "`i32`",
             Token::TypI64 => "`i64`",
             Token::TypBool => "`bool`",
-            Token::TypNothing => "`Nothing`",
         }
     }
 }
@@ -377,6 +405,13 @@ mod lexer_test {
     fn simple_arithmetic() {
         let source = "1 + 2 - 3* 4/5+0*999";
         let expected = &[Isize("1"), Plus, Isize("2"), Minus, Isize("3"), Star, Isize("4"), Slash, Isize("5"), Plus, Isize("0"), Star, Isize("999")];
+        simple_lexer_test(source, expected);
+    }
+
+    #[test]
+    fn string_literal() {
+        let source = r#" "hello" "#;
+        let expected = &[String("hello")];
         simple_lexer_test(source, expected);
     }
 

@@ -1,5 +1,0 @@
-declare fn putchar(i: int) -> int
-
-fn main() -> int {
-  return putchar(50);
-}

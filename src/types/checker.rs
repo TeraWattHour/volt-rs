@@ -19,25 +19,17 @@ macro_rules! numeric {
 }
 
 pub fn check_file<'a>(file_id: usize, program: &Vec<Statement<'a>>) -> Result<(), Error> {
-    let functions = program
-        .iter()
-        .filter_map(|stmt| match stmt {
-            Statement::Function(FunctionDefinition { name, .. }) | Statement::FunctionDeclaration(FunctionDeclaration { name, .. }) => {
-                Some(function_type(stmt).map(|ty| (identifier!(name.1), ty)))
-            }
-            _ => None,
-        })
-        .collect::<Result<HashMap<_, _>, _>>()?;
+    let functions = collect_functions(program)?;
 
     for stmt in program {
         match stmt {
             Statement::Function(fn_definition) => {
-                let mut fn_scope = VarScope::new(file_id, functions.clone(), Some(Type::type_of_node(&fn_definition.return_type)));
+                let mut fn_scope = VarScope::new(file_id, functions.clone(), fn_definition.return_type.as_ref().map(Type::type_of_node));
                 for (ident, typ) in &fn_definition.args {
-                    fn_scope.insert_identifier(&ident, Type::type_of_node(&typ));
+                    fn_scope.insert(ident.1, Type::type_of_node(&typ));
                 }
                 check_block(&fn_definition.body, &mut fn_scope)?;
-                if !does_block_always_return(&fn_definition.body) {
+                if fn_definition.return_type.is_some() && !does_block_always_return(&fn_definition.body) {
                     return Err(Error::generic(file_id, "function does not always return", span(&fn_definition.name)));
                 }
             }
@@ -47,6 +39,21 @@ pub fn check_file<'a>(file_id: usize, program: &Vec<Statement<'a>>) -> Result<()
     }
 
     Ok(())
+}
+
+fn collect_functions<'a>(block: &Vec<Statement<'a>>) -> Result<HashMap<String, Type>, Error> {
+    let mut functions = HashMap::new();
+
+    for statement in block {
+        match statement {
+            Statement::Function(FunctionDefinition { name, .. }) | Statement::FunctionDeclaration(FunctionDeclaration { name, .. }) => {
+                functions.insert(name.1.to_string(), function_type(statement)?);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(functions)
 }
 
 #[derive(Clone)]
@@ -62,14 +69,8 @@ impl VarScope {
         Self { file_id, variables: HashMap::new(), functions, expected_return }
     }
 
-    pub fn insert_identifier(&mut self, ident: &Token, typ: Type) {
-        self.variables.insert(
-            match ident {
-                Token::Identifier(ident) => ident.to_string(),
-                _ => unreachable!(),
-            },
-            typ,
-        );
+    pub fn insert(&mut self, name: &str, typ: Type) {
+        self.variables.insert(name.to_string(), typ);
     }
 
     pub fn lookup(&self, ident: &String) -> Option<Type> {
@@ -94,7 +95,14 @@ fn check_block(block: &Vec<Statement>, scope: &mut VarScope) -> Result<(), Error
 fn check(stmt: &Statement, scope: &mut VarScope) -> Result<(), Error> {
     match stmt {
         Statement::Let(stmt) => {
-            scope.insert_identifier(&stmt.name.1, mark_expression(&stmt.value, scope)?);
+            let name = stmt.name.1;
+            let rhs_typ = mark_expression(&stmt.value, scope)?;
+
+            if name.ends_with("?") && rhs_typ != Type::Bool {
+                return Err(Error::generic(scope.file_id, "identifier with a `?` suffix must be of type `bool`", span(&stmt.name)));
+            }
+
+            scope.insert(name, rhs_typ);
             Ok(())
         }
         Statement::Expression(expr) => {
@@ -128,8 +136,6 @@ fn check(stmt: &Statement, scope: &mut VarScope) -> Result<(), Error> {
             match &scope.expected_return {
                 Some(expected_type) => {
                     if &returned_type != expected_type {
-                        unimplemented!("wrong return type");
-
                         // return Err(vec![TypeError::WrongReturnType {
                         //     returned_by: stmt,
                         //     returned_type,
@@ -167,6 +173,7 @@ fn _check_expression(node: &Node, scope: &VarScope) -> Result<Type, Error> {
         Expression::Int32(_) => Ok(Type::Int32),
         Expression::Int64(_) => Ok(Type::Int64),
         Expression::Identifier(name) => Ok(scope.lookup(name).unwrap()),
+        Expression::String(_) => Ok(Type::Pointer(Box::new(Type::U8))),
         Expression::Prefix { op, rhs } => {
             let rhs_type = mark_expression(rhs, scope)?;
             Ok(match (op, &rhs_type) {
@@ -220,9 +227,9 @@ fn _check_expression(node: &Node, scope: &VarScope) -> Result<Type, Error> {
 
             Ok(*returned.clone())
         }
-        Expression::AddressOf(rhs) => Ok(Type::Address(Box::new(mark_expression(rhs, scope)?))),
+        Expression::AddressOf(rhs) => Ok(Type::Pointer(Box::new(mark_expression(rhs, scope)?))),
         Expression::Dereference(rhs) => match mark_expression(rhs, scope)? {
-            Type::Address(t) => Ok(*t),
+            Type::Pointer(t) => Ok(*t),
             _ => {
                 unimplemented!("cant dereference non-pointer")
             }
@@ -231,7 +238,7 @@ fn _check_expression(node: &Node, scope: &VarScope) -> Result<Type, Error> {
     }
 }
 
-fn does_block_always_return(block: &Vec<Statement>) -> bool {
+pub fn does_block_always_return(block: &Vec<Statement>) -> bool {
     for stmt in block {
         if does_statement_always_return(&stmt) {
             return true;
@@ -241,7 +248,7 @@ fn does_block_always_return(block: &Vec<Statement>) -> bool {
     false
 }
 
-fn does_statement_always_return(stmt: &Statement) -> bool {
+pub fn does_statement_always_return(stmt: &Statement) -> bool {
     match stmt {
         Statement::Return(_) => true,
         Statement::Block(block) => does_block_always_return(block),
@@ -263,7 +270,7 @@ fn function_type(stmt: &Statement) -> Result<Type, Error> {
         Statement::Function(FunctionDefinition { name, args, return_type, .. })
         | Statement::FunctionDeclaration(FunctionDeclaration { name, args, return_type, .. }) => {
             let argument_types = args.iter().map(|(_, typ)| Type::type_of_node(typ)).collect();
-            let return_type = Type::type_of_node(&return_type);
+            let return_type = return_type.as_ref().map(Type::type_of_node).unwrap_or(Type::Nothing);
 
             Ok(Type::Function { args: argument_types, returned: Box::new(return_type) })
         }

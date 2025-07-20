@@ -1,4 +1,4 @@
-use std::fmt::Formatter;
+use std::fmt::{write, Formatter};
 
 use crate::ast::expressions::{Expression, Node};
 
@@ -7,6 +7,8 @@ pub enum Type {
     Int,
     Int64,
     Int32,
+
+    U8,
 
     Float64,
     Float32,
@@ -17,7 +19,7 @@ pub enum Type {
     Function { args: Vec<Type>, returned: Box<Type> },
     Nothing,
 
-    Address(Box<Type>),
+    Pointer(Box<Type>),
 }
 
 impl Type {
@@ -28,10 +30,16 @@ impl Type {
             Self::Int32 => "w",
             Self::Float32 => "s",
             Self::Float64 => "d",
-            Self::Address(_) => "l",
-            _ => unimplemented!(),
+            Self::Nothing => "w",
+
+            // strings are referred to as pointers to the first characters of a sequence, as they don't have a separate type in qbe
+            Self::Pointer(_) | Self::String => "l",
+
+            typ => unimplemented!("{}", typ),
         }
     }
+
+    // pub fn returnable_as(&self, other: &Type) -> bool {}
 
     // pub fn basic_type<'a>(&self, ctx: &'a Context) -> BasicTypeEnum<'a> {
     //     self.try_basic_type(ctx).unwrap()
@@ -94,6 +102,7 @@ impl Type {
 impl std::fmt::Display for Type {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Type::U8 => write!(f, "u8"),
             Type::Int => write!(f, "int"),
             Type::Int64 => write!(f, "i64"),
             Type::Int32 => write!(f, "i32"),
@@ -105,7 +114,7 @@ impl std::fmt::Display for Type {
                 write!(f, "({}) -> {}", args_str, returned)
             }
             Type::String => write!(f, "string"),
-            Type::Address(t) => write!(f, "&{}", t),
+            Type::Pointer(t) => write!(f, "&{}", t),
             Type::Nothing => write!(f, "Nothing"),
         }
     }

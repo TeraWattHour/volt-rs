@@ -22,39 +22,21 @@ pub struct If<'a> {
 
 #[derive(Debug, Clone)]
 pub struct Let<'a> {
-    pub name: Spanned<Token<'a>>,
+    pub name: Spanned<&'a str>,
     pub value: Node,
-}
-
-impl<'a> Let<'a> {
-    pub fn name(&self) -> String {
-        match &self.name.1 {
-            Token::Identifier(name) => name.to_string(),
-            _ => panic!("Expected identifier token for let name"),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct FunctionDefinition<'a> {
-    pub name: Spanned<Token<'a>>,
-    pub args: Vec<(Token<'a>, Node)>,
-    pub return_type: Node,
+    pub name: Spanned<&'a str>,
+    pub args: Vec<(Spanned<&'a str>, Node)>,
+    pub return_type: Option<Node>,
     pub body: Vec<Statement<'a>>,
-}
-
-impl<'a> FunctionDefinition<'a> {
-    pub fn name(&self) -> String {
-        match &self.name.1 {
-            Token::Identifier(name) => name.to_string(),
-            _ => panic!("Expected identifier token for function name"),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
 pub struct FunctionDeclaration<'a> {
-    pub name: Spanned<Token<'a>>,
-    pub args: Vec<(Token<'a>, Node)>,
-    pub return_type: Node,
+    pub name: Spanned<&'a str>,
+    pub args: Vec<(Spanned<&'a str>, Node)>,
+    pub return_type: Option<Node>,
 }
