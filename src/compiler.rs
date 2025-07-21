@@ -6,7 +6,7 @@ use crate::{
         statements::{FunctionDefinition, If, Let, ReturnStatement, Statement},
     },
     errors::Error,
-    expr_ident,
+    expr_ident, operator_of_kind, type_of_kind,
     types::{checker::does_block_always_return, typ::Type},
 };
 
@@ -155,11 +155,30 @@ fn compile_expression(node: &Node, compiler: &mut Compiler) -> Result<String, Er
                 let typ = lhs.typ.borrow().clone().expect("type should be known at this point").into_qbe_repr();
                 writeln!(compiler.body, "  store{typ} {}, %{}", r_ident, assign_to)?;
             }
-            Op::Gt => {
+            operator_of_kind!(comparison) | operator_of_kind!(equality) => {
                 let l_id = compile_expression(lhs, compiler)?;
                 let r_id = compile_expression(rhs, compiler)?;
-                let typ = lhs.typ.borrow().clone().expect("type should be known at this point").into_qbe_repr();
-                writeln!(compiler.body, "  {id} =w csgt{typ} {l_id}, {r_id}")?;
+                let typ = lhs.typ.borrow().clone().expect("type should be known at this point");
+
+                let modifier = match (op, &typ) {
+                    (operator_of_kind!(comparison), type_of_kind!(signed_integer)) => "s",
+                    (operator_of_kind!(comparison), type_of_kind!(unsigned_integer)) => "u",
+                    _ => "",
+                };
+
+                let typ = typ.into_qbe_repr();
+
+                let compare_function = match op {
+                    Op::Gt => "gt",
+                    Op::Lt => "lt",
+                    Op::Gte => "ge",
+                    Op::Lte => "le",
+                    Op::Eq => "eq",
+                    Op::Neq => "ne",
+                    _ => unreachable!("{op} is not a comparison operator"),
+                };
+
+                writeln!(compiler.body, "  {id} =w c{modifier}{compare_function}{typ} {l_id}, {r_id}")?;
             }
             _ => unimplemented!(),
         },

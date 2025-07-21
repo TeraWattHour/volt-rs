@@ -2,20 +2,17 @@ declare fn putchar(ch: int)
 declare fn printf(pattern: *u8)
 
 fn main() -> int {
-  let should_print = true;
-  let a = 20;
-  if "a" > 10 {
-    hello();
-  }
+  let a = 130;
+  let b = 20;
 
-  if greater_than_ten(10) {
+  if a >= b {
     hello();
   }
   return 0;
 }
 
-fn greater_than_ten(a: int) -> bool {
-  return a > 10;
+fn greater_than_or_equal_to_ten(a: int) -> bool {
+  return a >= 10;
 }
 
 fn hello() {

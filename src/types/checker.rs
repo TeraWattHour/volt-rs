@@ -7,14 +7,9 @@ use crate::{
     },
     errors::Error,
     spanned::span,
+    type_of_kind,
     types::typ::{StructDefinition, Type},
 };
-
-macro_rules! numeric {
-    () => {
-        Type::Int32 | Type::Int64 | Type::Int | Type::Float32 | Type::Float64
-    };
-}
 
 pub fn check_file<'a>(file_id: usize, program: &Vec<Statement<'a>>) -> Result<(), Error> {
     let functions = collect_functions(file_id, program)?;
@@ -168,8 +163,8 @@ fn _check_expression(node: &Node, scope: &VarScope) -> Result<Type, Error> {
         Expression::Prefix { op, rhs } => {
             let rhs_type = mark_expression(rhs, scope)?;
             Ok(match (op, &rhs_type) {
-                (Op::Not, Type::Bool | numeric!()) => Type::Bool,
-                (Op::Negate, numeric!()) => rhs_type.clone(),
+                (Op::Not, Type::Bool | type_of_kind!(signed_integer)) => Type::Bool,
+                (Op::Negate, type_of_kind!(signed_integer)) => rhs_type.clone(),
                 _ => return Err(Error::generic(scope.file_id, "unknown prefix operation", span(&node.node))),
             })
         }
@@ -178,13 +173,15 @@ fn _check_expression(node: &Node, scope: &VarScope) -> Result<Type, Error> {
             let right_type = mark_expression(rhs, scope)?;
 
             Ok(match (&left_type, op, &right_type) {
-                (numeric!(), Op::Plus | Op::Minus | Op::Asterisk | Op::Slash | Op::Modulo, _) if &left_type == &right_type => left_type.clone(),
+                (type_of_kind!(signed_integer), Op::Plus | Op::Minus | Op::Asterisk | Op::Slash | Op::Modulo, _) if &left_type == &right_type => {
+                    left_type.clone()
+                }
 
-                (numeric!(), Op::Gte | Op::Gt | Op::Lt | Op::Lte, _) if &left_type == &right_type => Type::Bool,
+                (type_of_kind!(signed_integer), Op::Gte | Op::Gt | Op::Lt | Op::Lte, _) if &left_type == &right_type => Type::Bool,
                 (_, Op::Eq | Op::Neq, _) if &left_type == &right_type => Type::Bool,
                 (Type::Bool, Op::LogicalOr | Op::LogicalAnd, Type::Bool) => Type::Bool,
 
-                (numeric!(), Op::AsteriskAssign | Op::MinusAssign | Op::PlusAssign | Op::ModuloAssign | Op::SlashAssign, _)
+                (type_of_kind!(signed_integer), Op::AsteriskAssign | Op::MinusAssign | Op::PlusAssign | Op::ModuloAssign | Op::SlashAssign, _)
                     if &left_type == &right_type =>
                 {
                     left_type.clone()

@@ -132,3 +132,13 @@ macro_rules! expr_ident {
         }
     };
 }
+
+#[macro_export]
+macro_rules! operator_of_kind {
+    (comparison) => {
+        Op::Lte | Op::Lt | Op::Gte | Op::Gt
+    };
+    (equality) => {
+        Op::Eq | Op::Neq
+    };
+}

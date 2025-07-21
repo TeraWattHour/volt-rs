@@ -81,3 +81,13 @@ pub struct StructDefinition {
     pub name: String,
     pub fields: Vec<(String, Type)>,
 }
+
+#[macro_export]
+macro_rules! type_of_kind {
+    (signed_integer) => {
+        Type::Int | Type::Int64 | Type::Int32
+    };
+    (unsigned_integer) => {
+        Type::U8
+    };
+}
